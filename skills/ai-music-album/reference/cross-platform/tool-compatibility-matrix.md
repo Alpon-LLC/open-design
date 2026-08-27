@@ -1,0 +1,343 @@
+# Tool Compatibility Matrix
+
+What works on each platform for the Claude AI Music Skills plugin.
+
+---
+
+## Platform Support Overview
+
+| Platform | Support Level | Notes |
+|----------|---------------|-------|
+| **macOS** | Full | Primary development platform |
+| **Linux** (native) | Full | Tested on Ubuntu 22.04+ |
+| **WSL2** | Full | See [WSL Setup Guide](wsl-setup-guide.md) |
+| **WSL1** | Partial | Works but slower, some limitations |
+| **Windows (native)** | Full | The full test suite runs on windows-latest in CI, plus dedicated windows-latest legs for the MCP stdio boot check and MuseScore PDF export. Everything works: MCP server, state cache, non-audio workflow, the ffmpeg audio pipeline (mixing/mastering/codec preview), clipboard, promo video, and sheet music (MuseScore CI-verified; AnthemScore requires a licensed install — its trial has no CLI on **any** OS, so that caveat is not Windows-specific). Not the primary development platform, and promo video is verified by a real windows-latest render rather than continuously guarded — but that mock-only caveat applies on every OS, not just Windows (see the promo-video note below). |
+
+> **What "CI-tested" does and does not mean here.** The full suite, the MCP stdio
+> boot check, and the ffmpeg-gated *audio* tests (ADM validation, codec preview,
+> mastering samples) genuinely execute on windows-latest. Promo **video** is
+> different: all 62 of its tests mock `subprocess`, so no real render happens in
+> CI on any OS. That gap hid a total failure — until the filtergraph escaping fix,
+> every promo video and sampler clip failed on native Windows, because ffmpeg ate
+> the backslashes in an unquoted `fontfile=C:\Windows\...`. It is now confirmed
+> working by rendering a real frame on a windows-latest runner, but treat the
+> "works" below as verified-by-hand rather than continuously guarded.
+
+---
+
+## Feature Compatibility Matrix
+
+### Core Features (No Dependencies)
+
+| Feature | macOS | Linux | WSL2 | Windows (native) | Requirements |
+|---------|-------|-------|------|------------------|--------------|
+| Album planning | Yes | Yes | Yes | Yes | None |
+| Lyric writing | Yes | Yes | Yes | Yes | None |
+| Suno prompts | Yes | Yes | Yes | Yes | None |
+| Research skills | Yes | Yes | Yes | Yes | None |
+| Album validation | Yes | Yes | Yes | Yes | None |
+| Configuration | Yes | Yes | Yes | Yes | None |
+
+These have no external dependencies and are covered by the full suite plus the
+MCP stdio boot check on windows-latest.
+
+### Clipboard Skill
+
+| Platform | Utility | Install |
+|----------|---------|---------|
+| macOS | `pbcopy` | Built-in |
+| Linux | `xclip` | `sudo apt install xclip` |
+| Linux (alt) | `xsel` | `sudo apt install xsel` |
+| WSL2 | `clip.exe` | Built-in (Windows interop) |
+| Windows (native) | `clip.exe` | Built-in (System32), via Git Bash |
+
+**Notes**:
+- SSH sessions: Clipboard unavailable (use X11 forwarding or copy manually)
+- Headless Linux: xclip requires X11 display, use xsel with `--clipboard`
+- Windows (native): supported. Verified on a windows-latest runner — Git Bash
+  is present, the skill's detection chain selects the `clip.exe` branch,
+  `clip.exe` resolves at `/c/Windows/system32/clip.exe`, and a copy round-trips
+  via `Get-Clipboard`. PowerShell's `Set-Clipboard` also round-trips, so there
+  is a native fallback if a bash is ever unavailable.
+- This cannot be regression-tested in the normal suite: a headless runner has no
+  clipboard, and the probe above was a one-off. Treat it as verified-by-hand.
+
+### Audio Mastering
+
+| Feature | macOS | Linux | WSL2 | Windows (native) | Requirements |
+|---------|-------|-------|------|------------------|-----------------|
+| LUFS analysis | Yes | Yes | Yes | Yes | Python packages |
+| Track mastering | Yes | Yes | Yes | Yes | Python packages |
+| Reference mastering | Yes | Yes | Yes | Yes | Python packages |
+| Genre presets | Yes | Yes | Yes | Yes | Python packages |
+
+The ffmpeg-gated audio tests (ADM validation, codec preview, mastering samples)
+really execute on windows-latest — ffmpeg is installed there and CI asserts both
+`ffmpeg` and `ffprobe` resolve on PATH, so these cannot silently degrade to skips.
+
+**Python Requirements**:
+
+```bash
+pip install matchering pyloudnorm scipy numpy soundfile
+```
+
+**System Requirements**:
+
+| Platform | Additional Packages |
+|----------|---------------------|
+| macOS | None (soundfile bundles libsndfile) |
+| Linux | `sudo apt install libsndfile1` |
+| WSL2 | `sudo apt install libsndfile1` |
+
+### Promo Video Generation
+
+| Feature | macOS | Linux | WSL2 | Windows (native) | Requirements |
+|---------|-------|-------|------|------------------|---------------------|
+| Generate promos | Yes | Yes | Yes | Yes¹ | ffmpeg, Python |
+| All visualizations | Yes | Yes | Yes | Yes¹ | ffmpeg with filters |
+| Album sampler | Yes | Yes | Yes | Yes¹ | ffmpeg, Python |
+| Smart segments | Yes | Yes | Yes | Yes¹ | + librosa, numpy |
+
+¹ Verified by rendering a real frame on a windows-latest runner, **not** by
+continuous CI — all 62 promo-video tests mock `subprocess`, so no real render is
+guarded on any OS. Two Windows-specific fixes were required to get here, and
+neither would have been caught by the existing tests:
+
+- `find_font()` had no Windows candidates, so it returned `None` on every
+  Windows host and there was no font to draw with.
+- Paths were interpolated into the `drawtext` filtergraph unescaped. ffmpeg
+  treats `:` as its option separator and `\` as an escape, so
+  `fontfile=C:\Windows\Fonts\arialbd.ttf` was mangled to `C:WindowsFontsarialbd.ttf`
+  and the whole graph was rejected. Paths now go through `escape_filter_path()`,
+  which emits `'C\:/Windows/Fonts/arialbd.ttf'` — quoting alone is not enough,
+  because the graph splits on `:` before quotes are processed.
+
+**Requirements**:
+
+```bash
+# System
+# macOS: brew install ffmpeg
+# Linux/WSL: sudo apt install ffmpeg
+# Windows (native): choco install ffmpeg
+
+# Python
+pip install pillow pyyaml
+pip install librosa numpy  # Optional: for smart segment selection
+```
+
+**Required ffmpeg Filters**:
+
+```bash
+# Verify these filters are available
+ffmpeg -filters 2>/dev/null | grep -E "showwaves|showfreqs|drawtext|gblur"
+```
+
+### Document Hunter (Playwright)
+
+| Feature | macOS | Linux | WSL2 | Windows (native) | Requirements |
+|---------|-------|-------|------|------------------|-----------------------|
+| Browser automation | Yes | Yes | Partial | Untested | Playwright + Chromium |
+| PDF downloads | Yes | Yes | Partial | Untested | Playwright + Chromium |
+
+Playwright supports Windows natively, so this is expected to work — but nothing
+in the Python suite exercises it on any platform, so it is marked untested rather
+than supported.
+
+**Requirements**:
+
+```bash
+pip install playwright
+playwright install chromium
+
+# Linux/WSL only: install system dependencies
+playwright install-deps chromium
+```
+
+**WSL Notes**:
+- Works in headless mode
+- GUI mode requires WSLg (Windows 11) or X11 server (Windows 10)
+
+### Sheet Music Generation
+
+| Feature | macOS | Linux | WSL2 | Windows (native) | Requirements |
+|---------|-------|-------|------|------------------|------------------|
+| Auto transcription | Yes | Yes | Partial | Yes² | AnthemScore |
+| PDF export | Yes | Yes | Partial | Yes² | AnthemScore |
+| Notation editing / PDF re-export | Yes | Yes | Partial | Yes¹ | MuseScore |
+| Songbook creation | Yes | Yes | Yes | Yes | pypdf, reportlab |
+
+Songbook creation is pure Python (pypdf/reportlab) and runs anywhere.
+
+¹ **MuseScore on native Windows is CI-verified.** MuseScore is free with a real
+CLI, so — unlike AnthemScore — its Windows path is testable. A `windows-latest`
+leg of the MuseScore integration job installs it via Chocolatey (which lands it
+at `C:\Program Files\MuseScore 4\bin\MuseScore4.exe`, the first entry in
+`find_musescore()`'s Windows table), and `find_musescore()` detects it with no
+help before exporting a real PDF. This runs on every PR, so it cannot silently
+regress.
+
+² **AnthemScore on native Windows requires a licensed install, and is not
+independently CI-verified.** The blocker is *not* Windows-specific: the free
+trial exposes no CLI on **any** OS (an unlicensed binary rejects every flag,
+confirmed on the current macOS and Linux builds), and activation is device-based
+so ephemeral runners can't be licensed. It is expected to work — AnthemScore is
+a native-Windows application, `transcribe.py` knows its Windows install path and
+uses the correct `where` locator (fixed in #498), and the CLI is confirmed
+working on a licensed macOS install exercising the same code path. Not run on a
+Windows box here.
+
+**Software Requirements**:
+
+| Tool | macOS | Linux | WSL2 | Windows (native) |
+|------|-------|-------|------|------------------|
+| AnthemScore | Native | Native | Run in Windows | Native (licensed) |
+| MuseScore | Native | Native | WSLg or Windows | Native (CI-verified) |
+
+**Notes**:
+- AnthemScore: $42 (Professional edition), Windows/Mac/Linux
+- **AnthemScore's CLI requires a licensed install.** The free trial exposes no
+  command-line interface at all: an unlicensed binary rejects every option,
+  including `--help`, with `AnthemScore: Unknown options: a, p, x, m.` Verified
+  on the current macOS DMG and Linux AppImage. So `transcribe.py` works only
+  against an activated copy — anyone evaluating the sheet-music workflow on the
+  trial will hit that wall and reasonably conclude the tool is broken.
+- This also means AnthemScore transcription **cannot be covered in CI**:
+  activation is device-based (4 devices, plus one per year), and ephemeral
+  runners present as a new device every run, so CI would exhaust the
+  activations. Its tests are necessarily mock-only — unlike MuseScore, which is
+  free and installable per-run and therefore has a real integration job.
+- MuseScore: Free, open source
+- WSL2: Run GUI apps in Windows, use WSL for CLI scripts
+
+---
+
+## Python Version Requirements
+
+| Feature | Minimum Python | Recommended |
+|---------|----------------|-------------|
+| Core plugin | 3.10+ (per requirements.txt) | 3.10+ |
+| Audio mastering | 3.10+ (per requirements.txt) | 3.10+ |
+| Promo videos | 3.10+ (per requirements.txt) | 3.10+ |
+| Document hunter | 3.10+ (per requirements.txt) | 3.10+ |
+| Sheet music tools | 3.10+ (per requirements.txt) | 3.10+ |
+
+---
+
+## External Tool Requirements
+
+### ffmpeg
+
+| Feature | Required |
+|---------|----------|
+| Promo videos | Yes |
+| Video encoding | Yes |
+| Audio extraction | Optional |
+
+**Install**:
+
+```bash
+# macOS
+brew install ffmpeg
+
+# Linux/WSL
+sudo apt install ffmpeg
+
+# Windows (native) — same mechanism CI uses
+choco install ffmpeg
+```
+
+### AnthemScore
+
+| Feature | Required |
+|---------|----------|
+| Audio-to-sheet-music | Yes |
+| CLI batch transcription | Yes |
+
+**Location by Platform**:
+
+| Platform | Path |
+|----------|------|
+| macOS | `/Applications/AnthemScore.app/Contents/MacOS/AnthemScore` |
+| Linux | `~/AnthemScore/AnthemScore` or as installed |
+| WSL | Run in Windows, copy output to WSL |
+
+### MuseScore
+
+| Feature | Required |
+|---------|----------|
+| Notation editing | Yes |
+| PDF re-export | Yes |
+
+**Install**:
+
+```bash
+# macOS
+brew install --cask musescore
+
+# Linux (may be older version)
+sudo apt install musescore
+
+# For latest version, download from musescore.org
+```
+
+---
+
+## Known Limitations by Platform
+
+### macOS
+
+- None significant
+
+### Linux
+
+- Clipboard requires X11 display (or use xsel for headless)
+- Some older distros may have outdated ffmpeg
+
+### WSL2
+
+- GUI apps require Windows 11 (WSLg) or X11 server on Windows 10
+- File operations on `/mnt/` slower than native filesystem
+- Some Playwright features may require additional setup
+- AnthemScore/MuseScore: Run in Windows, use CLI tools in WSL
+
+### WSL1
+
+- Slower than WSL2
+- Limited Linux kernel compatibility
+- Some npm/Python packages may have issues
+- Recommend upgrading to WSL2
+
+---
+
+## Quick Dependency Check
+
+Run this to verify your setup:
+
+```bash
+# Python
+python3 --version
+
+# Clipboard
+if command -v pbcopy >/dev/null; then echo "macOS clipboard: OK"
+elif command -v clip.exe >/dev/null; then echo "Windows/WSL clipboard: OK"
+elif command -v xclip >/dev/null; then echo "Linux clipboard: OK"
+else echo "Clipboard: MISSING"; fi
+
+# ffmpeg
+ffmpeg -version 2>/dev/null | head -1 || echo "ffmpeg: MISSING"
+
+# Python packages (if venv activated)
+python3 -c "import soundfile" 2>/dev/null && echo "soundfile: OK" || echo "soundfile: MISSING"
+python3 -c "import matchering" 2>/dev/null && echo "matchering: OK" || echo "matchering: MISSING"
+python3 -c "import PIL" 2>/dev/null && echo "pillow: OK" || echo "pillow: MISSING"
+```
+
+---
+
+## See Also
+
+- [WSL Setup Guide](wsl-setup-guide.md) - Complete WSL2 configuration
+- [Mastering Workflow](/reference/mastering/mastering-workflow.md) - Audio processing
+- [Promo Workflow](/reference/promotion/promo-workflow.md) - Video generation
+- [Sheet Music Workflow](/reference/sheet-music/workflow.md) - Transcription

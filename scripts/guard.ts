@@ -25,6 +25,12 @@ import { checkScriptsLibraryArchitecture } from "./lib/guard/architecture.ts";
 import { runGuardChecks, type GuardCheck, type GuardContext } from "./lib/guard/core.ts";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
+const advertisedSkillLock = JSON.parse(
+  await readFile(path.join(repoRoot, "advertised-skills.lock.json"), "utf8"),
+) as { skills?: Record<string, { status?: string }> };
+const vendoredAdvertisedSkillPrefixes = Object.entries(advertisedSkillLock.skills ?? {})
+  .filter(([, entry]) => entry.status === "vendored")
+  .map(([id]) => `skills/${id}/`);
 const allowedE2eScripts = new Set([
   "e2e/scripts/playwright.ts",
   "e2e/scripts/release-smoke.ts",
@@ -210,6 +216,10 @@ const residualAllowedPathPatterns: RegExp[] = [
 
 function isResidualAllowedPath(repositoryPath: string): boolean {
   if (residualAllowedExactPaths.has(repositoryPath)) return true;
+  // Immutable upstream skill payloads are vendor inputs covered file-by-file by
+  // advertised-skills.lock.json and the offline safety verifier. Native skills
+  // and unresolved catalogue stubs do not receive this JavaScript exemption.
+  if (vendoredAdvertisedSkillPrefixes.some((prefix) => repositoryPath.startsWith(prefix))) return true;
   if (residualAllowedPathPrefixes.some((prefix) => repositoryPath.startsWith(prefix))) return true;
   return residualAllowedPathPatterns.some((pattern) => pattern.test(repositoryPath));
 }

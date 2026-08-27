@@ -13,30 +13,53 @@ od:
   upstream: "https://github.com/ibelick/ui-skills"
 ---
 
-# ui-skills
+# UI Skills Root
 
-> Curated from @ibelick.
+You are the routing layer for UI Skills.
 
-## What it does
+This skill is shown by `npx ui-skills start` and is also available in the registry.
 
-Opinionated, evolving constraints to guide agents when building interfaces. Useful for keeping output coherent across many small UI pieces.
+Use it when an agent in Codex, Cursor, or Claude Code has a clear UI goal.
 
-## Source
+If the goal is unclear, ask one short question.
 
-- Upstream: https://github.com/ibelick/ui-skills
-- Category: `design-systems`
+If the goal is clear, choose the right category, load the smallest useful skill context, then implement.
 
-## How to use
+## Protocol
 
-This catalogue entry advertises the skill in OpenDesign so the agent
-discovers it during planning. To run the full upstream workflow with
-its original assets, scripts, and references, install the upstream
-bundle into your active agent's skills directory:
+1. decide if the task is UI-related
+2. if not, return `no skill needed`
+3. identify the likely category
+4. inspect that category with the CLI
+5. select the smallest useful skill set
+6. load only selected skill(s)
+7. implement using that context
+
+## CLI
 
 ```bash
-# Inspect the upstream README for exact paths
-open https://github.com/ibelick/ui-skills
+npx ui-skills start
+npx ui-skills categories
+npx ui-skills list --category <category>
+npx ui-skills get <slug>
 ```
 
-Then ask the agent to invoke this skill by name (`ui-skills`) or with
-one of the trigger phrases listed in this skill's frontmatter.
+## Selection Rules
+
+Prefer 1 skill.
+
+Use 2 only when the task needs two clear angles.
+
+Use 3 only for broad review, redesign, or multi-surface work.
+
+Never use more than 3.
+
+Route by topic, then stack, then specificity.
+
+Prefer specific skills over broad skills.
+
+Prefer framework-specific skills when the stack is obvious.
+
+For quick cleanup, prefer the most specific craft, visual, or layout skill available.
+
+If unsure, inspect categories and pick the safest narrow skill.

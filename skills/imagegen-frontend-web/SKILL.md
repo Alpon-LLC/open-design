@@ -27,7 +27,6 @@ od:
     Generate separate premium website reference images for each landing-page section, keeping one coherent palette and varied composition.
 ---
 
-
 # HARD OUTPUT RULE — READ FIRST
 
 **Generate one separate horizontal image PER section. Always. No exceptions.**
