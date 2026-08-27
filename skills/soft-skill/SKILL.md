@@ -27,7 +27,6 @@ od:
     Create a calm high-end landing page with refined typography, soft contrast, premium spacing, subtle depth, and restrained motion.
 ---
 
-
 # Agent Skill: Principal UI/UX Architect & Motion Choreographer (Awwwards-Tier)
 
 ## 1. Meta Information & Core Directive

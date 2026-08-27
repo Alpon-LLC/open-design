@@ -2,12 +2,11 @@
 // Seed `skills/<id>/SKILL.md` for the curated design/creative skill
 // catalogue surfaced in Settings → Skills.
 //
-// Each entry advertises an upstream skill from the awesome-claude-skills
-// (ComposioHQ) and awesome-agent-skills (VoltAgent) communities. The body
-// stays light — it points the agent at the upstream repo, lists the
-// skill's purpose, and tells the user how to install the full upstream
-// bundle if they want the original assets/scripts. The frontmatter carries
-// `od.category` so the Settings → Skills filter row groups them visibly.
+// Each entry records catalogue metadata and the originally advertised source.
+// This seed only bootstraps a missing folder. Maintainers must then run
+// `pnpm skills:sync-advertised -- --update-lock` to resolve the canonical
+// directory and vendor its pinned operational content. Production never fetches
+// upstream skill content.
 //
 // Idempotent: a skill folder is only created when it does not already
 // exist. To re-seed an entry, delete its folder under `skills/` first.
@@ -50,8 +49,7 @@ interface CuratedSkill {
   tagline?: string;
   // Optional credit line ("By @author") shown at the top of the body.
   attribution?: string;
-  // Optional warning for catalogue entries whose upstream workflow depends on
-  // assets or scripts that are not bundled by this repository.
+  // Optional warning shown only in an unsynchronized bootstrap entry.
   catalogueOnlyNote?: string;
 }
 
@@ -1084,28 +1082,14 @@ function buildBody(s: CuratedSkill): string {
   lines.push('');
   lines.push('## How to use');
   lines.push('');
-  lines.push(
-    'This catalogue entry advertises the skill in OpenDesign so the agent',
-  );
-  lines.push(
-    'discovers it during planning. To run the full upstream workflow with',
-  );
-  lines.push(
-    'its original assets, scripts, and references, install the upstream',
-  );
-  lines.push('bundle into your active agent\'s skills directory:');
+  lines.push('This is an unsynchronized catalogue bootstrap. A maintainer must');
+  lines.push('resolve and vendor the pinned upstream workflow before release:');
   lines.push('');
   lines.push('```bash');
-  lines.push(`# Inspect the upstream README for exact paths`);
-  lines.push(`open ${s.upstream}`);
+  lines.push('pnpm skills:sync-advertised -- --update-lock');
   lines.push('```');
   lines.push('');
-  lines.push(
-    'Then ask the agent to invoke this skill by name (`' + s.id + '`) or with',
-  );
-  lines.push(
-    'one of the trigger phrases listed in this skill\'s frontmatter.',
-  );
+  lines.push(`The source advertised for resolution is ${s.upstream}.`);
   lines.push('');
   return lines.join('\n');
 }

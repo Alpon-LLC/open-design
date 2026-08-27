@@ -26,7 +26,6 @@ od:
     Create an industrial-brutalist interface with rigid grids, tactical telemetry motifs, strong typography, and mechanical precision.
 ---
 
-
 # SKILL: Industrial Brutalism & Tactical Telemetry UI
 
 ## 1. Skill Meta

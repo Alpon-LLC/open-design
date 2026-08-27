@@ -16,8 +16,6 @@ od:
 
 # GSAP Timeline
 
-> Curated from GreenSock's official GSAP skills: https://github.com/greensock/gsap-skills
-
 ## When to Use This Skill
 
 Apply when building multi-step animations, coordinating several tweens in sequence or parallel, or when the user asks about timelines, sequencing, or keyframe-style animation in GSAP.

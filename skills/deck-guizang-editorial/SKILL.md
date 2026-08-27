@@ -36,7 +36,7 @@ od:
     zh-CN: "用「归藏编辑墨水 Deck」模板把我的内容做成一套「电子杂志 × 电子墨水; 10 个版面 + 5 套调色板 (墨水/靛蓝瓷/森林墨/牛皮纸/沙丘)」。保持模板的视觉签名，使用真实内容和数据，避免 lorem ipsum 和占位图片。"
 ---
 
-【模板: 归藏编辑墨水 Deck (Editorial × E-Ink)】
+【模板: 贵赞编辑墨水 Deck (Editorial × E-Ink)】
 【意图】叙事、观点、分享、个人风格表达。墨纸印刷感, 不要科技感。Inspired by op7418/guizang-ppt-skill Style A。
 
 【调色板 — 5 选 1, 严禁改 hex、严禁混用】

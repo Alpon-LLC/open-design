@@ -28,7 +28,6 @@ od:
     Audit the existing UI first, then redesign it to premium quality without breaking functionality, preserving useful product structure.
 ---
 
-
 # Redesign Skill
 
 ## How This Works

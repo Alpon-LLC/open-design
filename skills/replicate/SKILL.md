@@ -13,30 +13,26 @@ od:
   upstream: "https://github.com/replicate/skills"
 ---
 
-# replicate
+# Replicate Skills
 
-> Curated from Replicate.
+A collection of [Agent Skills](https://agentskills.io) for building AI-powered apps with [Replicate](https://replicate.com).
 
-## What it does
+Skills included:
 
-Discover, compare, and run AI models using Replicate's API. Strong fit for image, audio, and video generation pipelines that swap models frequently.
+- **find-models** — search for models, browse collections, read schemas, pick the right model
+- **compare-models** — evaluate models by cost, speed, quality, and capabilities
+- **run-models** — create predictions, poll, use webhooks, stream, handle files, run concurrently
+- **build-models** — package custom models with Cog (cog.yaml, predict.py, weights, local serving)
+- **publish-models** — push models to Replicate with cog push / cog-safe-push and CI/CD releases
+- **prompt-images** — prompting techniques for image generation and editing models
+- **prompt-videos** — prompting techniques for video generation and editing models
 
-## Source
+## Installing
 
-- Upstream: https://github.com/replicate/skills
-- Category: `image-generation`
+These skills work with any agent that supports the [Agent Skills standard](https://agentskills.io/specification), including Claude Code, OpenCode, OpenAI Codex, and Pi.
 
-## How to use
-
-This catalogue entry advertises the skill in OpenDesign so the agent
-discovers it during planning. To run the full upstream workflow with
-its original assets, scripts, and references, install the upstream
-bundle into your active agent's skills directory:
-
-```bash
-# Inspect the upstream README for exact paths
-open https://github.com/replicate/skills
+```
+npx skills add replicate/skills
 ```
 
-Then ask the agent to invoke this skill by name (`replicate`) or with
-one of the trigger phrases listed in this skill's frontmatter.
+<img width="1658" height="1604" alt="Screenshot 2026-02-16 at 12 01 13@2x" src="https://github.com/user-attachments/assets/390a4676-6c44-43a9-b9cc-596a0e05b1cb" />

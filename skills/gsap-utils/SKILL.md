@@ -17,8 +17,6 @@ od:
 
 # gsap.utils
 
-> Curated from GreenSock's official GSAP skills: https://github.com/greensock/gsap-skills
-
 ## When to Use This Skill
 
 Apply when writing or reviewing code that uses **gsap.utils** for math, array/collection handling, unit parsing, or value mapping in animations (e.g. mapping scroll to a value, randomizing, snapping to a grid, or normalizing inputs).

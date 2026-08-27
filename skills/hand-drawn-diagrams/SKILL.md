@@ -13,30 +13,28 @@ od:
   upstream: "https://github.com/muthuishere/hand-drawn-diagrams"
 ---
 
-# hand-drawn-diagrams
+Follow the instructions in `./workflow.md`.
 
-> Curated from @muthuishere.
+## Workflow
 
-## What it does
+1. **Route** — Read `./steps/step-01-route.md`. Pick one diagram type from the routing table (`references/activation-routing.xml`) based on user intent (teach, brainstorm, UX flow, funnel, technical explainer, medical, creative, or page mockup).
+2. **Draw** — Read `./steps/step-02-draw.md`. Design the diagram using the shared shape grammar (`references/fundamental-shapes.md`), then write the `.excalidraw` JSON file with a non-empty elements array to `/tmp/hand-drawn-diagrams/<slug>/`.
+3. **Validate & Deliver** — Read `./steps/step-03-validate.md`. Run `scripts/validate_excalidraw.py`, then `scripts/open_diagram.py` to generate a hosted edit URL and open it in the browser. Offer animation and PNG as follow-ups.
 
-Generate hand-drawn Excalidraw diagrams from a prompt — animated SVG, hosted edit link, and PNG export. Works with Claude Code, Codex, Gemini CLI, and any agent supporting standard skill paths.
+## Key Rules
 
-## Source
+- Hand-drawn style, same sketch font, monochrome by default
+- Labels: 1–5 words per shape; max 3 short bullets per container
+- Write `.excalidraw` files to `/tmp/`, not the user's workspace (unless they ask)
+- Always validate before generating URLs — never share an empty diagram
+- Rendering priority: Chrome DevTools MCP (fast) → Playwright (fallback)
 
-- Upstream: https://github.com/muthuishere/hand-drawn-diagrams
-- Category: `diagrams`
+## References
 
-## How to use
+- `references/index.md` — full reference index
+- `references/activation-routing.xml` — route selection rules and delivery modes
+- `references/fundamental-shapes.md` — core shape language
 
-This catalogue entry advertises the skill in OpenDesign so the agent
-discovers it during planning. To run the full upstream workflow with
-its original assets, scripts, and references, install the upstream
-bundle into your active agent's skills directory:
+## Optional: Chrome DevTools MCP
 
-```bash
-# Inspect the upstream README for exact paths
-open https://github.com/muthuishere/hand-drawn-diagrams
-```
-
-Then ask the agent to invoke this skill by name (`hand-drawn-diagrams`) or with
-one of the trigger phrases listed in this skill's frontmatter.
+For fast PNG and animated SVG rendering, install `chrome-devtools-mcp` (uses a real browser, no Playwright needed). See `INSTALL.md` for setup. Without it, rendering falls back to Playwright.

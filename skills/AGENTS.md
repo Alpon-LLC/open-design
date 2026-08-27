@@ -33,23 +33,18 @@ full split.
 
 ## Curated design / creative catalogue
 
-This directory also ships a curated catalogue of design and creative
-skills hand-picked from `VoltAgent/awesome-agent-skills` and
-`ComposioHQ/awesome-claude-skills`. Each entry is a lightweight stub —
-frontmatter + a short body that points at the upstream repo — so the
-Integrations → Skills surfaces a rich, filterable list out of the box
-without vendoring every upstream workflow.
+This directory also ships a curated catalogue of design and creative skills.
+Entries with `od.upstream` are deterministically vendored at the full commit
+SHAs in `../advertised-skills.lock.json`; they are not runtime download stubs.
+See `../docs/advertised-skills.md` for sync, selection, licensing, and offline
+verification policy.
 
-- `od.category` on these stubs powers the new category filter row in
+- `od.category` on these entries powers the new category filter row in
   Integrations → Skills (e.g. `image-generation`, `video-generation`,
   `audio-music`, `slides`, `documents`, `design-systems`, `figma`,
   `animation-motion`, `3d-shaders`, `diagrams`, `creative-direction`,
   `marketing-creative`, `screenshots`, `web-artifacts`).
-- The seed script lives at `scripts/seed-curated-design-skills.ts` and
-  is **idempotent**: running it again only creates folders that don't
-  already exist, so a hand-edited stub is never overwritten. Delete the
-  folder under `skills/` and re-run the script to refresh an entry.
-- Stubs intentionally do not vendor upstream assets. To run an upstream
-  workflow with its original scripts and references, copy the upstream
-  folder into your active agent's skills directory (Claude Code, Codex,
-  Cursor, etc.) — the body of each stub explains how.
+- The idempotent seed script only bootstraps missing catalogue metadata. After
+  changing the catalogue, run the maintainer sync and commit its lock/content
+  result. Never ship an unsynchronized bootstrap entry.
+- `pnpm skills:verify-advertised` is offline and must pass before release.
