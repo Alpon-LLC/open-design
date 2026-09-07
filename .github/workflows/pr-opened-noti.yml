@@ -1,0 +1,36 @@
+name: PR Opened Notification
+
+# ── Template: notify Slack when a PR to main is opened ──
+# Posts PR title, author, number, source->target branch and labels.
+# Secrets: ALPON_WATCHDOG_SLACK_BOT_TOKEN, SLACK_CHANNEL_ID,
+#          PROJECT_SLUG (optional; falls back to org/repo).
+# Consumes: slack-notification.yml
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened]
+
+permissions:
+  contents: none
+
+jobs:
+  notify-slack:
+    name: Notify Slack
+    uses: ./.github/workflows/slack-notification.yml
+    with:
+      kind: pr
+      status: success
+      repository_url: ${{ format('{0}/{1}', github.server_url, github.repository) }}
+      workflow_url: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+      pr_title: ${{ github.event.pull_request.title }}
+      pr_author: ${{ github.event.pull_request.user.login }}
+      pr_url: ${{ github.event.pull_request.html_url }}
+      pr_number: ${{ github.event.pull_request.number }}
+      source_branch: ${{ github.event.pull_request.head.ref }}
+      target_branch: ${{ github.event.pull_request.base.ref }}
+      labels: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+    secrets:
+      slack_bot_token: ${{ secrets.ALPON_WATCHDOG_SLACK_BOT_TOKEN }}
+      slack_channel_id: ${{ secrets.SLACK_CHANNEL_ID }}
+      project_slug: ${{ secrets.PROJECT_SLUG }}
