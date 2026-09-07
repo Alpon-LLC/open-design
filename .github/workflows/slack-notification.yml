@@ -1,0 +1,308 @@
+name: Slack Notification
+
+# ── Template: reusable Slack notifier ──
+# Called by other workflows (never triggered directly).
+# Kinds: release (version created / failed), deployment, pr (opened).
+# Message prefix: [<project_slug>] if provided, else [org/repo].
+#
+# Layout: big header title (Block Kit) + mrkdwn body + small fun line + divider.
+#   PR opened  -> 🥚
+#   merged     -> 🐛
+#   deployed   -> 🦋
+#
+# Secrets passed through by the caller:
+#   slack_bot_token  (ALPON_WATCHDOG_SLACK_BOT_TOKEN)
+#   slack_channel_id (SLACK_CHANNEL_ID)
+#   project_slug     (PROJECT_SLUG, optional) e.g. "TOMO"
+
+on:
+  workflow_call:
+    inputs:
+      kind:
+        description: "Notification kind: release, deployment, or pr"
+        required: false
+        default: release
+        type: string
+      status:
+        description: "Result: success or failure"
+        required: true
+        type: string
+      repository_url:
+        description: Full URL of the repository
+        required: true
+        type: string
+      version_url:
+        description: URL of the tag or GitHub Release
+        required: false
+        type: string
+      changelog_url:
+        description: URL comparing the previous and current semantic version tags
+        required: false
+        type: string
+      release_created:
+        description: Whether this deployment created a new GitHub Release
+        required: false
+        default: false
+        type: boolean
+      workflow_url:
+        description: URL of the originating Actions run
+        required: true
+        type: string
+      pr_title:
+        description: Title of the pull request
+        required: false
+        type: string
+      pr_author:
+        description: Login of the pull request author
+        required: false
+        type: string
+      pr_url:
+        description: URL of the pull request
+        required: false
+        type: string
+      pr_number:
+        description: Pull request number
+        required: false
+        type: string
+      source_branch:
+        description: Source branch of the pull request
+        required: false
+        type: string
+      target_branch:
+        description: Target branch of the pull request
+        required: false
+        type: string
+      labels:
+        description: Comma-separated PR labels
+        required: false
+        type: string
+      environment:
+        description: Deployment environment
+        required: false
+        type: string
+      tag:
+        description: Semantic version tag created for the merge
+        required: false
+        type: string
+      previous_tag:
+        description: Previous semantic version tag
+        required: false
+        type: string
+      bump_type:
+        description: Applied semantic version bump
+        required: false
+        type: string
+      build_status:
+        description: "Container build result: success, failure, or not_triggered"
+        required: false
+        default: ""
+        type: string
+      docker_image:
+        description: Full Docker image name (e.g. ghcr.io/org/repo)
+        required: false
+        default: ""
+        type: string
+      docker_tag:
+        description: Docker tag applied to the image (e.g. v1.2.3)
+        required: false
+        default: ""
+        type: string
+    secrets:
+      slack_bot_token:
+        required: false
+      slack_channel_id:
+        required: false
+      project_slug:
+        required: false
+
+permissions:
+  contents: none
+
+jobs:
+  notify:
+    name: Notify Slack
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Send Slack notification
+        continue-on-error: true
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.slack_bot_token }}
+          SLACK_CHANNEL_ID: ${{ secrets.slack_channel_id }}
+          KIND: ${{ inputs.kind }}
+          STATUS: ${{ inputs.status }}
+          PROJECT_SLUG: ${{ secrets.project_slug }}
+          REPOSITORY_URL: ${{ inputs.repository_url }}
+          VERSION_URL: ${{ inputs.version_url }}
+          CHANGELOG_URL: ${{ inputs.changelog_url }}
+          RELEASE_CREATED: ${{ inputs.release_created }}
+          WORKFLOW_URL: ${{ inputs.workflow_url }}
+          PR_TITLE: ${{ inputs.pr_title }}
+          PR_AUTHOR: ${{ inputs.pr_author }}
+          PR_URL: ${{ inputs.pr_url }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          SOURCE_BRANCH: ${{ inputs.source_branch }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          LABELS: ${{ inputs.labels }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          TAG: ${{ inputs.tag }}
+          PREVIOUS_TAG: ${{ inputs.previous_tag }}
+          BUMP_TYPE: ${{ inputs.bump_type }}
+          BUILD_STATUS: ${{ inputs.build_status }}
+          DOCKER_IMAGE: ${{ inputs.docker_image }}
+          DOCKER_TAG: ${{ inputs.docker_tag }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$SLACK_BOT_TOKEN" ] || [ -z "$SLACK_CHANNEL_ID" ]; then
+            echo "::warning::Slack notification skipped. Ensure ALPON_WATCHDOG_SLACK_BOT_TOKEN and SLACK_CHANNEL_ID are available to this repository."
+            exit 0
+          fi
+
+          # Compute prefix: use PROJECT_SLUG if set, otherwise fall back to org/repo
+          if [ -n "$PROJECT_SLUG" ]; then
+            PREFIX="[${PROJECT_SLUG}]"
+          else
+            REPO_SLUG="${REPOSITORY_URL#https://github.com/}"
+            PREFIX="[${REPO_SLUG}]"
+          fi
+
+          safe_pr_title=""
+          if [ -n "$PR_TITLE" ]; then
+            safe_pr_title="$(printf '%s' "$PR_TITLE" \
+              | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/|/-/g')"
+          fi
+
+          fun_message=""
+          if [ "$KIND" = "pr" ]; then
+            # ── PR opened ──
+            if [ -z "$PR_TITLE" ] || [ -z "$PR_AUTHOR" ] || [ -z "$PR_URL" ]; then
+              echo "::warning::PR notification skipped because PR details are missing."
+              exit 0
+            fi
+
+            title="🥚 ${PREFIX} NEW PR OPENED"
+            pr_display="#${PR_NUMBER}: ${safe_pr_title}"
+            body="*PR:* <${PR_URL}|${pr_display}> by @${PR_AUTHOR}"
+            if [ -n "$SOURCE_BRANCH" ] && [ -n "$TARGET_BRANCH" ]; then
+              body="$(printf '%s\n*Branch:* `%s` → `%s`' "$body" "$SOURCE_BRANCH" "$TARGET_BRANCH")"
+            fi
+            if [ -n "$LABELS" ]; then
+              formatted_labels="$(printf '%s' "$LABELS" | sed 's/,/, /g')"
+              body="$(printf '%s\n*Labels:* %s' "$body" "$formatted_labels")"
+            fi
+            body="$(printf '%s\n*Repository:* <%s|%s>' "$body" "$REPOSITORY_URL" "$REPOSITORY_URL")"
+            fun_message="PR divinely blessed 🧘🙏. Correctness? Only god knows 💀"
+
+          elif [ "$KIND" = "deployment" ]; then
+            # ── Deployment ──
+            if [ "$STATUS" != "success" ]; then
+              echo "Deployment notifications are success-only; skipping status '$STATUS'."
+              exit 0
+            fi
+            if [ -z "$TAG" ] || [ -z "$ENVIRONMENT" ]; then
+              echo "::warning::Deployment notification skipped because tag or environment is missing."
+              exit 0
+            fi
+
+            if [ "$RELEASE_CREATED" = "true" ]; then
+              title="🦋 ${PREFIX} DEPLOYMENT SUCCEEDED — NEW RELEASE"
+            else
+              title="🦋 ${PREFIX} DEPLOYMENT SUCCEEDED — RELEASE UPDATED"
+            fi
+            body="$(printf '*Environment:* `%s`\n*Version:* `%s`\n*Repository:* <%s|%s>\n<%s|View release> · <%s|View workflow>' \
+              "$ENVIRONMENT" \
+              "$TAG" \
+              "$REPOSITORY_URL" \
+              "$REPOSITORY_URL" \
+              "$VERSION_URL" \
+              "$WORKFLOW_URL")"
+            fun_message="If you shipped your code, it may be shit, but if you don't, it's always shit as it serves no soul. YOLO!"
+
+          elif [ "$STATUS" = "success" ]; then
+            # ── PR merged + release created ──
+            version="${TAG:-unknown}"
+            title="🐛 ${PREFIX} PR MERGED — NEW VERSION v${version}"
+            version_details="\`${version}\` (${BUMP_TYPE:-unknown} bump; previous: \`${PREVIOUS_TAG:-none}\`)"
+            fun_message="Correctness? Only god knows, but he said it'll do fine"
+
+          elif [ "$KIND" = "release" ]; then
+            # ── Auto-versioning failed ──
+            title="⚠️ ${PREFIX} AUTO-VERSIONING FAILED"
+            version_details="No version tag was created."
+            fun_message="Correctness? Only god knows 💀"
+
+          else
+            echo "::warning::Unknown Slack notification kind: $KIND"
+            exit 0
+          fi
+
+          if [ "$KIND" = "release" ]; then
+            if [ -z "$PR_TITLE" ] || [ -z "$PR_AUTHOR" ] || [ -z "$PR_URL" ]; then
+              echo "::warning::Release notification skipped because PR details are missing."
+              exit 0
+            fi
+            version_links="<${WORKFLOW_URL}|View workflow>"
+            if [ -n "$CHANGELOG_URL" ]; then
+              version_links="<${CHANGELOG_URL}|View changelog> · ${version_links}"
+            fi
+            if [ -n "$VERSION_URL" ]; then
+              version_links="<${VERSION_URL}|View version> · ${version_links}"
+            fi
+            build_line=""
+            docker_line=""
+            if [ -n "$BUILD_STATUS" ] && [ "$BUILD_STATUS" != "not_triggered" ]; then
+              if [ "$BUILD_STATUS" = "success" ]; then
+                build_line="*Build:* :white_check_mark: succeeded"
+              else
+                build_line="*Build:* :x: failed (\`${BUILD_STATUS}\`)"
+                title="🐛 ${PREFIX} PR MERGED — BUILD FAILED"
+                fun_message="Correctness? Only god knows — and today he's not saying 💀"
+              fi
+            fi
+            if [ -n "$DOCKER_IMAGE" ] && [ -n "$DOCKER_TAG" ]; then
+              docker_line="*Docker:* \`${DOCKER_IMAGE}:${DOCKER_TAG}\`"
+            fi
+            extra_lines=""
+            if [ -n "$build_line" ]; then
+              extra_lines="$(printf '%s\n%s' "$extra_lines" "$build_line")"
+            fi
+            if [ -n "$docker_line" ]; then
+              extra_lines="$(printf '%s\n%s' "$extra_lines" "$docker_line")"
+            fi
+            body="$(printf '*PR:* <%s|%s> by @%s\n*Version:* %s%s\n*Repository:* <%s|%s>\n%s' \
+              "$PR_URL" \
+              "$safe_pr_title" \
+              "$PR_AUTHOR" \
+              "$version_details" \
+              "$extra_lines" \
+              "$REPOSITORY_URL" \
+              "$REPOSITORY_URL" \
+              "$version_links")"
+          fi
+
+          payload="$(jq -n \
+            --arg channel "$SLACK_CHANNEL_ID" \
+            --arg title "$title" \
+            --arg body "$body" \
+            --arg fun "$fun_message" \
+            '{channel: $channel, text: $title, unfurl_links: false,
+              blocks: ([
+                {type: "header", text: {type: "plain_text", text: $title}},
+                {type: "section", text: {type: "mrkdwn", text: $body}}
+              ] + (if ($fun | length) > 0 then
+                    [{type: "context", elements: [{type: "mrkdwn", text: $fun}]}]
+                  else [] end)
+                + [{type: "divider"}])}')"
+
+          response="$(curl --fail-with-body --silent --show-error \
+            -X POST "https://slack.com/api/chat.postMessage" \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            --data "$payload")"
+          if ! jq -e '.ok == true' >/dev/null <<< "$response"; then
+            error="$(jq -r '.error // "unknown_error"' <<< "$response")"
+            echo "::warning::Slack rejected the notification: $error"
+            exit 1
+          fi
