@@ -2892,6 +2892,13 @@ export async function startServer({
   // wall — well past 4mb for image/markup-heavy sites. Give it a dedicated limit
   // (registered before the global parser so it claims the body first).
   app.use('/api/brands/:id/extract-from-html', express.json({ limit: '32mb' }));
+  // Artifact save/lint carry the full rendered HTML of a design artifact. For an
+  // image/markup-heavy design that body runs well past the conservative 4mb
+  // global cap, so a large edited artifact 413s on save (and on the pre-save
+  // lint, which POSTs the same HTML). Give both a dedicated generous limit,
+  // registered before the global parser so it claims the body first.
+  app.use('/api/artifacts/save', express.json({ limit: '128mb' }));
+  app.use('/api/artifacts/lint', express.json({ limit: '128mb' }));
   app.use(express.json({ limit: '4mb' }));
   const projectPreviewScopes = createProjectPreviewScopeRegistry();
 

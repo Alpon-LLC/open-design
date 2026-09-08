@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - [Fixed] Long speaker notes are now scrollable inside the presenter view instead of being clipped when notes push the layout past the viewport. (#6271)
+- [Fixed] Saving an edited design artifact no longer fails with HTTP 413 (Payload Too Large) when its rendered HTML exceeds 4 MB — artifact save/lint now accept up to 64 MB bodies.
 
 ## [0.9.0] - 2026-05-29
 
