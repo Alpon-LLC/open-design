@@ -5,13 +5,6 @@ packages:
   - shells/*
   - e2e
 
-# pnpm v10 requires workspace packages to be injected for `pnpm deploy`.
-# Without this, deploying a workspace package that depends on other workspace
-# packages fails with ERR_PNPM_DEPLOY_NONINJECTED_WORKSPACE. Injection keeps the
-# deployed node_modules in the pnpm (`.pnpm`) layout that the OpenDesign image
-# hardening patches target.
-inject-workspace-packages: true
-
 overrides:
   brace-expansion: 5.0.6
   devalue: 5.8.1
