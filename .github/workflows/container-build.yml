@@ -86,8 +86,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # PAT auth needs BOTH secrets. Failing fast on a half-configured pair
+          # avoids symlink silently falling back to GITHUB_TOKEN (which 403s on
+          # a private cross-repo base). Watch the exact name: GHCR_TOKEN, not
+          # GCHR_TOKEN.
           if [ -n "${{ secrets.GHCR_TOKEN }}" ] && [ -z "${{ secrets.GHCR_USERNAME }}" ]; then
-            echo "::error::GHCR_TOKEN is set but GHCR_USERNAME is not. Set GHCR_USERNAME to the GitHub login of the PAT owner (the account that can read ghcr.io/alpon-llc/hermes-agent-code)."
+            echo "::error::GHCR_TOKEN is set but GHCR_USERNAME is not. Set GHCR_USERNAME to the GitHub login of the PAT owner."
+            exit 1
+          fi
+          if [ -n "${{ secrets.GHCR_USERNAME }}" ] && [ -z "${{ secrets.GHCR_TOKEN }}" ]; then
+            echo "::error::GHCR_USERNAME is set but GHCR_TOKEN is not. Both must be set to authenticate to the private base. (Check the exact secret name: GHCR_TOKEN, not GCHR_TOKEN.)"
             exit 1
           fi
           echo "Auth mode: GHCR_USERNAME=${{ secrets.GHCR_USERNAME || 'github.actor (GITHUB_TOKEN grant)' }}"
