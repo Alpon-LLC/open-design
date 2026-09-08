@@ -2899,7 +2899,11 @@ export async function startServer({
   // registered before the global parser so it claims the body first.
   app.use('/api/artifacts/save', express.json({ limit: '128mb' }));
   app.use('/api/artifacts/lint', express.json({ limit: '128mb' }));
-  app.use(express.json({ limit: '4mb' }));
+  // Global JSON body cap. The agent/ACP harness round-trips large context,
+  // tool, and chat payloads that run well past a conservative 4mb, so the
+  // default is raised to 128mb (matching /api/library/ingest) to avoid 413s on
+  // agent runs, project saves, and design previews.
+  app.use(express.json({ limit: '128mb' }));
   const projectPreviewScopes = createProjectPreviewScopeRegistry();
 
   // Plan §3.K1 — API-token middleware.
