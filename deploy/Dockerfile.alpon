@@ -1,0 +1,172 @@
+# Canonical OpenDesign daemon image for Alpon.
+#
+# Replaces (deletes the fragility of):
+#   * /srv/alpon/runtime/open-design-daemon      (hand-posed build snapshot)
+#   * /srv/alpon/build/open-design-remediation-20260829-01/Dockerfile
+#   * compose.emergency.yaml                      (runtime bind-mount overlay)
+#
+# This builds the daemon + web UI from source, lays it out under /opt/opendesign
+# so the daemon's PROJECT_ROOT resolves (see apps/daemon/src/project-root.ts ->
+# resolveProjectRoot), applies the same dependency hardening + native rebuilds
+# the remediation did, and layers it on the Hermes agent image so OpenDesign's
+# "Hermes" CLI integration (ACP, `hermes --profile design`) is bundled.
+#
+# Build (on the host / CI):
+#   docker build -f deploy/Dockerfile.alpon -t alpon/open-design:canonical .
+# Deploy digest-pinned:
+#   image: alpon/open-design:canonical@sha256:<digest>
+
+# Node 24.19+ crashes native-addon teardown (nexu-io/open-design#6462) — pin 24.18.0.
+ARG NODE_IMAGE=node:24.18.0-alpine3.23@sha256:595398b0081eacda8e1c4c5b97b76cd1020e4d58a8ebcb4843b9bca1e79e7436
+ARG RUNTIME_IMAGE=alpon/hermes-agent:x509-wif-20260830-05
+
+# ---------------------------------------------------------------------------
+# BUILD — install, compile, deploy, then harden (same remediation as before)
+# ---------------------------------------------------------------------------
+FROM ${NODE_IMAGE} AS build
+
+ARG HTTP_PROXY HTTPS_PROXY http_proxy https_proxy no_proxy NO_PROXY
+ENV HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} \
+    http_proxy=${http_proxy} https_proxy=${https_proxy} \
+    no_proxy=${no_proxy} NO_PROXY=${NO_PROXY}
+ENV CI=true
+
+# build-base -> make/g++ for native addon rebuilds (better-sqlite3, node-pty)
+RUN apk add --no-cache python3 make g++ linux-headers
+
+WORKDIR /app
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY scripts/postinstall.mjs ./scripts/postinstall.mjs
+COPY packages ./packages
+COPY tools ./tools
+COPY apps/daemon/package.json ./apps/daemon/package.json
+COPY apps/web/package.json ./apps/web/package.json
+COPY e2e/package.json ./e2e/package.json
+RUN corepack enable && \
+    corepack prepare pnpm@10.33.2 --activate && \
+    pnpm install --frozen-lockfile
+
+COPY apps ./apps
+
+# Build daemon + web; deploy the daemon (pnpm layout, keeps the `.pnpm` store
+# the hardening below targets). NOT --prod so the remediation's transitive
+# patch targets (esbuild@0.25.12 etc.) are present; prune after.
+RUN pnpm --filter @open-design/daemon build && \
+    pnpm --filter @open-design/web build && \
+    pnpm --filter @open-design/daemon deploy /opt/opendesign/runtime/daemon && \
+    pnpm store prune
+
+# Web static export + resource trees, laid out so the daemon's PROJECT_ROOT
+# (= /opt/opendesign) resolves them exactly.
+COPY --from=build /app/apps/web/out /opt/opendesign/apps/web/out
+RUN mkdir -p /opt/opendesign
+COPY skills /opt/opendesign/skills
+COPY design-systems /opt/opendesign/design-systems
+COPY design-templates /opt/opendesign/design-templates
+COPY craft /opt/opendesign/craft
+COPY prompt-templates /opt/opendesign/prompt-templates
+COPY assets/frames /opt/opendesign/assets/frames
+COPY assets/community-pets /opt/opendesign/assets/community-pets
+COPY plugins/_official /opt/opendesign/plugins/_official
+
+# --- Dependency hardening (transitive CVEs) + native rebuild + image-size patch ---
+# Replace known-vulnerable prints with patched publishes, in-place in the
+# deployed `.pnpm` store, exactly as the previous remediation did.
+COPY deploy/remediate-runtime.py /tmp/remediate-runtime.py
+RUN set -eu; \
+    mkdir -p /tmp/npm-fixes; \
+    cd /tmp/npm-fixes; \
+    npm pack \
+        nanoid@3.3.18 \
+        postcss@8.5.18 \
+        protobufjs@8.4.1 \
+        esbuild@0.28.2 \
+        @esbuild/linux-x64@0.28.2 >/dev/null; \
+    replace_package() { \
+        archive="$1"; destination="$2"; \
+        rm -rf "$destination"; mkdir -p "$destination"; \
+        tar -xzf "$archive" --strip-components=1 -C "$destination"; \
+    }; \
+    P=/opt/opendesign/runtime/daemon/node_modules/.pnpm; \
+    replace_package nanoid-3.3.18.tgz \
+        $P/nanoid@3.3.12/node_modules/nanoid; \
+    replace_package postcss-8.5.18.tgz \
+        $P/postcss@8.5.15/node_modules/postcss; \
+    replace_package protobufjs-8.4.1.tgz \
+        $P/protobufjs@8.4.0/node_modules/protobufjs; \
+    replace_package esbuild-0.28.2.tgz \
+        $P/esbuild@0.25.12/node_modules/esbuild; \
+    replace_package esbuild-linux-x64-0.28.2.tgz \
+        $P/@esbuild+linux-x64@0.25.12/node_modules/@esbuild/linux-x64; \
+    python3 /tmp/remediate-runtime.py; \
+    for package in \
+        $P/better-sqlite3@*/node_modules/better-sqlite3 \
+        $P/node-pty@*/node_modules/node-pty; do \
+        [ -d "$package" ]; \
+        (cd "$package" && npm_config_nodedir=/usr/local npm rebuild --build-from-source); \
+    done; \
+    node -e "require('$P/better-sqlite3/node_modules/better-sqlite3')"; \
+    node -e "require('$P/node-pty/node_modules/node-pty')"; \
+    node -e "require('$P/nanoid@3.3.12/node_modules/nanoid')"; \
+    node -e "require('$P/postcss@8.5.15/node_modules/postcss')"; \
+    node -e "require('$P/protobufjs@8.4.0/node_modules/protobufjs')"; \
+    test "$($P/esbuild@0.25.12/node_modules/esbuild/bin/esbuild --version)" = 0.28.2; \
+    timeout 5 node /tmp/remediate-runtime.py.test.cjs; \
+    rm -rf /root/.cache /tmp/* /tmp/npm-fixes
+
+# Prune non-runtime clutter (safe after the patched deps are in place).
+RUN find /opt/opendesign/runtime/daemon/node_modules -type d \( \
+        -name test -o -name tests -o -name __tests__ -o -name docs -o \
+        -name doc -o -name example -o -name examples -o -name .github \
+    \) -prune -exec rm -rf '{}' + && \
+    find /opt/opendesign/runtime/daemon/node_modules -type f \( \
+        -name "*.md" -o -name "*.markdown" -o -name "*.d.ts" -o \
+        -name "*.d.cts" -o -name "*.d.mts" -o -name "*.map" -o \
+        -name "*.tsbuildinfo" -o -name "binding.gyp" \
+    \) -delete
+
+# ---------------------------------------------------------------------------
+# RUNTIME — Hermes agent image + remediated OpenDesign daemon + ACP wrapper
+# ---------------------------------------------------------------------------
+FROM ${RUNTIME_IMAGE}
+
+USER root
+# Hermes-agent base may ship a different node; force the pinned 24.18 binary.
+COPY --from=build --chmod=0755 /usr/local/bin/node /usr/local/bin/node
+COPY --from=build --chown=10000:10000 /opt/opendesign /opt/opendesign
+COPY --chown=0:0 --chmod=0755 deploy/hermes-design /opt/opendesign/runtime/hermes-design
+
+RUN mkdir -p \
+        /opt/opendesign/data \
+        /opt/opendesign/open-design-home \
+        /opt/opendesign/.looper-attachments && \
+    chown -R 10000:10000 \
+        /opt/opendesign/data \
+        /opt/opendesign/open-design-home \
+        /opt/opendesign/.looper-attachments && \
+    node --version && \
+    node -e "require('/opt/opendesign/runtime/daemon/node_modules/better-sqlite3')" && \
+    node -e "require('/opt/opendesign/runtime/daemon/node_modules/node-pty')" && \
+    /opt/hermes/bin/hermes --version && \
+    rm -rf /root/.cache /tmp/*
+
+ENV HOME=/opt/opendesign/open-design-home
+ENV HERMES_HOME=/opt/data
+ENV NODE_ENV=production
+ENV NODE_OPTIONS=--max-old-space-size=384
+ENV OD_PORT=7456
+ENV OD_WEB_PORT=7456
+ENV OD_DATA_DIR=/opt/opendesign/data
+ENV HERMES_BIN=/opt/opendesign/runtime/hermes-design
+
+USER 10000:10000
+WORKDIR /opt/opendesign
+VOLUME ["/opt/data", "/opt/opendesign/data", "/opt/opendesign/open-design-home", "/opt/opendesign/.looper-attachments"]
+EXPOSE 7456
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=120s --retries=18 \
+    CMD node -e "fetch('http://127.0.0.1:7456/').then(r=>{if(r.status!==200)process.exit(1)}).catch(()=>process.exit(1))"
+
+ENTRYPOINT ["node"]
+CMD ["/opt/opendesign/runtime/daemon/dist/cli.js", "--host", "0.0.0.0", "--port", "7456", "--no-open"]
