@@ -2897,8 +2897,8 @@ export async function startServer({
   // global cap, so a large edited artifact 413s on save (and on the pre-save
   // lint, which POSTs the same HTML). Give both a dedicated generous limit,
   // registered before the global parser so it claims the body first.
-  app.use('/api/artifacts/save', express.json({ limit: '64mb' }));
-  app.use('/api/artifacts/lint', express.json({ limit: '64mb' }));
+  app.use('/api/artifacts/save', express.json({ limit: '128mb' }));
+  app.use('/api/artifacts/lint', express.json({ limit: '128mb' }));
   app.use(express.json({ limit: '4mb' }));
   const projectPreviewScopes = createProjectPreviewScopeRegistry();
 
