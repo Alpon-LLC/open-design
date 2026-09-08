@@ -214,3 +214,28 @@ jobs:
           gh run watch "$RUN_ID"
           CONCLUSION=$(gh run view "$RUN_ID" --json=conclusion --jq='.conclusion')
           echo "build_status=${CONCLUSION}" >> "$GITHUB_OUTPUT"
+
+  notify-slack:
+    name: Notify Slack
+    needs: [tag-merged-pr, build-image]
+    if: ${{ always() && github.event.pull_request.merged == true }}
+    uses: ./.github/workflows/slack-notification.yml
+    with:
+      status: ${{ needs.tag-merged-pr.result == 'success' && 'success' || 'failure' }}
+      repository_url: ${{ format('{0}/{1}', github.server_url, github.repository) }}
+      version_url: ${{ needs.tag-merged-pr.result == 'success' && format('{0}/{1}/tree/{2}', github.server_url, github.repository, needs.tag-merged-pr.outputs.new_version) || '' }}
+      changelog_url: ${{ needs.tag-merged-pr.result == 'success' && needs.tag-merged-pr.outputs.latest_tag != 'none' && needs.tag-merged-pr.outputs.latest_tag != 'existing' && format('{0}/{1}/compare/{2}...{3}', github.server_url, github.repository, needs.tag-merged-pr.outputs.latest_tag, needs.tag-merged-pr.outputs.new_version) || '' }}
+      workflow_url: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
+      pr_title: ${{ github.event.pull_request.title }}
+      pr_author: ${{ github.event.pull_request.user.login }}
+      pr_url: ${{ github.event.pull_request.html_url }}
+      tag: ${{ needs.tag-merged-pr.outputs.new_version }}
+      previous_tag: ${{ needs.tag-merged-pr.outputs.latest_tag }}
+      bump_type: ${{ needs.tag-merged-pr.outputs.bump_type }}
+      build_status: ${{ needs.build-image.outputs.build_status || 'not_triggered' }}
+      docker_image: ${{ needs.build-image.outputs.docker_image || '' }}
+      docker_tag: ${{ needs.build-image.outputs.docker_tag || '' }}
+    secrets:
+      slack_bot_token: ${{ secrets.ALPON_WATCHDOG_SLACK_BOT_TOKEN }}
+      slack_channel_id: ${{ secrets.SLACK_CHANNEL_ID }}
+      project_slug: ${{ secrets.PROJECT_SLUG }}
