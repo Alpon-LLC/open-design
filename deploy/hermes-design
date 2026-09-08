@@ -1,0 +1,2 @@
+#!/usr/bin/env sh
+exec /opt/hermes/bin/hermes --profile design "$@"
