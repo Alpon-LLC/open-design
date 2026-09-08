@@ -41,11 +41,21 @@ Then point `compose.yaml` `image:` at the built image (pin by digest) and
 
 ## Image provenance / CI
 
-Both the base (`ghcr.io/alpon-llc/hermes-agent-code:v0.1.1`) and the built
-OpenDesign image are reachable from GHCR. `.github/workflows/container-build.yml`
-builds `deploy/Dockerfile.alpon` and pushes it to
-`ghcr.io/<owner>/<repo>`; `.github/workflows/auto-versioning.yml` allocates a
-semver on merge and dispatches the build. (Modeled on `Alpon-LLC/hermes-agent-code`.)
+The built OpenDesign image is pushed to `ghcr.io/<owner>/<repo>` by
+`.github/workflows/container-build.yml` (builds `deploy/Dockerfile.alpon`);
+`.github/workflows/auto-versioning.yml` allocates a semver on merge and
+dispatches it. (Modeled on `Alpon-LLC/hermes-agent-code`.)
+
+**The base image `ghcr.io/alpon-llc/hermes-agent-code:v0.1.1` is PRIVATE** (its
+repo is private). The workflow can pull it during the build only if you do one
+of:
+- **Grant repo Access:** GitHub → `alpon-llc` org → Packages → `hermes-agent-code`
+  → Manage Actions access → add `Alpon-LLC/open-design`. The workflow's
+  `GITHUB_TOKEN` then pulls it (no workflow change).
+- **PAT override:** add repo secrets `GHCR_USERNAME` + `GHCR_TOKEN` (fine-grained
+  PAT with `packages: read` + `write`). `container-build.yml` prefers these over
+  `GITHUB_TOKEN`.
+Otherwise the build fails at the `FROM` pull with a permission error.
 
 ## What is NOT in the image
 
