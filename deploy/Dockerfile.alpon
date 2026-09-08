@@ -63,10 +63,11 @@ RUN pnpm --filter @open-design/daemon build && \
     pnpm --filter @open-design/daemon deploy /opt/opendesign/runtime/daemon && \
     pnpm store prune
 
-# Web static export + resource trees, laid out so the daemon's PROJECT_ROOT
-# (= /opt/opendesign) resolves them exactly.
-COPY --from=build /app/apps/web/out /opt/opendesign/apps/web/out
-RUN mkdir -p /opt/opendesign
+# Web static export (already built in this stage) + resource trees, laid out so
+# the daemon's PROJECT_ROOT (= /opt/opendesign) resolves STATIC_DIR and the
+# resource dirs exactly.
+RUN mkdir -p /opt/opendesign/apps/web && \
+    cp -r /app/apps/web/out /opt/opendesign/apps/web/out
 COPY skills /opt/opendesign/skills
 COPY design-systems /opt/opendesign/design-systems
 COPY design-templates /opt/opendesign/design-templates
@@ -112,8 +113,8 @@ RUN set -eu; \
         [ -d "$package" ]; \
         (cd "$package" && npm_config_nodedir=/usr/local npm rebuild --build-from-source); \
     done; \
-    node -e "require('$P/better-sqlite3/node_modules/better-sqlite3')"; \
-    node -e "require('$P/node-pty/node_modules/node-pty')"; \
+    node -e "require('/opt/opendesign/runtime/daemon/node_modules/better-sqlite3')"; \
+    node -e "require('/opt/opendesign/runtime/daemon/node_modules/node-pty')"; \
     node -e "require('$P/nanoid@3.3.12/node_modules/nanoid')"; \
     node -e "require('$P/postcss@8.5.15/node_modules/postcss')"; \
     node -e "require('$P/protobufjs@8.4.0/node_modules/protobufjs')"; \
