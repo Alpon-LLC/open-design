@@ -16,9 +16,14 @@
 # Deploy digest-pinned:
 #   image: alpon/open-design:canonical@sha256:<digest>
 
-# Node 24.19+ crashes native-addon teardown (nexu-io/open-design#6462) — pin 24.18.0.
-ARG NODE_IMAGE=node:24.18.0-alpine3.23@sha256:595398b0081eacda8e1c4c5b97b76cd1020e4d58a8ebcb4843b9bca1e79e7436
-ARG RUNTIME_IMAGE=alpon/hermes-agent:x509-wif-20260830-05
+# Runtime base MUST be a reachable registry image. The local
+# alpon/hermes-agent:x509-wif-20260830-05 was a temporary GSM-secrets recovery
+# build and was never pushed to ghcr — a CI/pull build cannot fetch it.
+# hermes-agent-code publishes a glibc (Debian 13) Hermes agent image to ghcr;
+# use it, and keep the build stage glibc (bookworm) so the node binary we copy
+# actually runs on the Debian base (Alpine/musl node cannot).
+ARG NODE_IMAGE=node:24.18.0-bookworm-slim
+ARG RUNTIME_IMAGE=ghcr.io/alpon-llc/hermes-agent-code:v0.1.1
 
 # ---------------------------------------------------------------------------
 # BUILD — install, compile, deploy, then harden (same remediation as before)
@@ -31,8 +36,9 @@ ENV HTTP_PROXY=${HTTP_PROXY} HTTPS_PROXY=${HTTPS_PROXY} \
     no_proxy=${no_proxy} NO_PROXY=${NO_PROXY}
 ENV CI=true
 
-# build-base -> make/g++ for native addon rebuilds (better-sqlite3, node-pty)
-RUN apk add --no-cache python3 make g++ linux-headers
+# build-tools for native addon rebuilds (better-sqlite3, node-pty) against glibc.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential python3 git ca-certificates && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

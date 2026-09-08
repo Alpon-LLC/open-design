@@ -1,0 +1,118 @@
+name: Build and Push Image
+
+# ── Template: container build/publish (trunk-based development) ──
+# Triggered via workflow_dispatch with a `version` input (git SHA or semver tag).
+# Builds deploy/Dockerfile.alpon and pushes to GHCR:
+#   - sha          -> image:git-<sha>
+#   - tag (1.2.3)  -> image:v1.2.3
+# Also uploads an image-lock.json (digest + metadata) as an artifact.
+#
+# Image name defaults to ghcr.io/<owner>/<repo>. Override with a repo
+# variable `IMAGE_NAME` (Settings > Secrets and variables > Actions > Variables).
+# Consumed by auto-versioning.yml after PR merge.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Git SHA or version tag to build (e.g. abc1234 or 1.2.3)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: container-build-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ${{ vars.IMAGE_NAME || format('ghcr.io/{0}', github.repository) }}
+  DOCKERFILE: ${{ vars.DOCKERFILE || 'deploy/Dockerfile.alpon' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+
+    steps:
+      - name: Resolve version metadata
+        id: version
+        run: |
+          VER="${{ inputs.version }}"
+          # SHA detection: 7+ hex chars with no dots
+          if echo "$VER" | grep -qE '^[0-9a-f]{7,40}$'; then
+            echo "docker_tag=git-${VER}" >> "$GITHUB_OUTPUT"
+            echo "is_sha=true" >> "$GITHUB_OUTPUT"
+          else
+            # It's a version tag — prefix with v
+            echo "docker_tag=v${VER}" >> "$GITHUB_OUTPUT"
+            echo "is_sha=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Normalize image name (lowercase)
+        run: echo "IMAGE_NAME=$(printf '%s' "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          ref: ${{ inputs.version }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121  # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push image
+        id: push
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f  # v7.1.0
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE }}
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.version.outputs.docker_tag }}
+            ${{ env.IMAGE_NAME }}:latest
+          labels: |
+            org.opencontainers.image.revision=${{ inputs.version }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.version.outputs.docker_tag }}
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
+          provenance: true
+          sbom: true
+
+      # ── Generate image lock file ──
+      - name: Generate image lock
+        run: |
+          DIGEST="${{ steps.push.outputs.digest }}"
+          BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          cat > image-lock.json << LOCKEOF
+          {
+            "schema_version": 1,
+            "source_repository": "${{ github.repository }}",
+            "source_commit": "${{ inputs.version }}",
+            "product_version": "${{ steps.version.outputs.docker_tag }}",
+            "image": "${{ env.IMAGE_NAME }}",
+            "digest": "${DIGEST}",
+            "built_at": "${BUILT_AT}"
+          }
+          LOCKEOF
+          echo "Image lock:"
+          cat image-lock.json
+
+      - name: Upload image lock
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08  # v4.6.0
+        with:
+          name: image-lock-${{ inputs.version }}
+          path: image-lock.json
+          retention-days: 90

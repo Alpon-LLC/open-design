@@ -34,11 +34,18 @@ Then point `compose.yaml` `image:` at the built image (pin by digest) and
   `plugins/_official/`.
 - The Hermes `design` agent ACP harness via `hermes-design`
   (`exec /opt/hermes/bin/hermes --profile design "$@"`) on the
-  `alpon/hermes-agent:x509-wif-20260830-05` base.
-- Node pinned to 24.18.0; `better-sqlite3` + `node-pty` rebuilt from source
-  (musl ABI); transitive CVEs patched (nanoid/postcss/protobufjs/esbuild via
-  `npm pack` replace) and `image-size@1.2.1` (via `deploy/remediate-runtime.py`,
-  republished as `image-size-alpon@1.2.2-alpon.1`).
+  `ghcr.io/alpon-llc/hermes-agent-code:v0.1.1` base (the same published glibc
+  image the Hermes gateways run). The toolchain is glibc (Debian) end-to-end,
+  so the pinned node 24.18 binary copied into the runtime actually loads.
+- Node pinned to 24.18.0 (`node:24.18.0-bookworm-slim` build stage); `better-sqlite3` + `node-pty` rebuilt from source (glibc); transitive CVEs patched (nanoid/postcss/protobufjs/esbuild via `npm pack` replace) and `image-size@1.2.1` (via `deploy/remediate-runtime.py`, republished as `image-size-alpon@1.2.2-alpon.1`).
+
+## Image provenance / CI
+
+Both the base (`ghcr.io/alpon-llc/hermes-agent-code:v0.1.1`) and the built
+OpenDesign image are reachable from GHCR. `.github/workflows/container-build.yml`
+builds `deploy/Dockerfile.alpon` and pushes it to
+`ghcr.io/<owner>/<repo>`; `.github/workflows/auto-versioning.yml` allocates a
+semver on merge and dispatches the build. (Modeled on `Alpon-LLC/hermes-agent-code`.)
 
 ## What is NOT in the image
 
@@ -59,6 +66,14 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "Content-Type: application/j
 
 ## Notes
 
+- **Toolchain change from the live setup:** the prior image was built on an
+  Alpine/musl base (`alpon/hermes-agent:x509-wif-20260830-05`, a temporary GSM
+  recovery build, never pushed to ghcr). This canonical build uses the
+  published glibc `ghcr.io/alpon-llc/hermes-agent-code` base and a
+  `node:24.18.0-bookworm-slim` build stage, so node + native addons are glibc.
+  **You must run a real `docker build` to validate** (node headers for
+  `npm rebuild`, the glibc native build, and that the pinned node loads on the
+  Debian base). No Docker socket in the agent env — the host/CI build is the gate.
 - `NODE_OPTIONS=--max-old-space-size=384` matches the live image. (The vault's
   design-agent note suggesting 1024 is stale — reconcile if HyperFrames renders
   OOM in practice.)
