@@ -3104,6 +3104,33 @@ export async function importProjectFigma(
 // follow-up listFiles round-trip.
 const PROJECT_UPLOAD_BATCH_SIZE = 12;
 
+// Chunked upload for files too big for a single request on CDN-fronted
+// deployments (e.g. Cloudflare caps proxied request bodies at 100MB).
+// Files above CHUNK_UPLOAD_THRESHOLD are split into CHUNK_UPLOAD_SIZE blobs,
+// PUT one-by-one, then assembled server-side on complete. Keep these aligned
+// with apps/daemon/src/routes/project/upload-chunks.ts.
+const CHUNK_UPLOAD_SIZE = 5 * 1024 * 1024;
+const CHUNK_UPLOAD_THRESHOLD = 10 * 1024 * 1024;
+const CHUNK_UPLOAD_CONCURRENCY = 3;
+const CHUNK_UPLOAD_MAX_ATTEMPTS = 3;
+const CHUNK_UPLOAD_FILE_MAX = 200 * 1024 * 1024;
+
+interface UploadedProjectFilePayload {
+  name: string;
+  path: string;
+  size?: number;
+  originalName?: string;
+}
+
+function chunkedUploadId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID().replace(/-/g, '');
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+}
+
+const chunkUploadDelay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 export interface ProjectUploadFailure {
   name: string;
   code?: string;
@@ -3114,6 +3141,124 @@ export interface UploadProjectFilesResult {
   uploaded: ChatAttachment[];
   failed: ProjectUploadFailure[];
   error?: string;
+}
+
+// PUTs one 5 MiB slice; `retryable` distinguishes transport/5xx failures
+// (worth a resume pass) from 4xx rejections (not worth retrying).
+async function putChunkWithRetry(
+  url: string,
+  blob: Blob,
+  headers: Record<string, string>,
+): Promise<'ok' | 'retryable' | 'reject'> {
+  for (let attempt = 1; attempt <= CHUNK_UPLOAD_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const resp = await fetch(url, { method: 'PUT', headers, body: blob });
+      if (resp.ok) return 'ok';
+      if (resp.status >= 400 && resp.status < 500) return 'reject';
+    } catch {
+      // network error — fall through to backoff
+    }
+    if (attempt < CHUNK_UPLOAD_MAX_ATTEMPTS) {
+      await chunkUploadDelay(200 * attempt);
+    }
+  }
+  return 'retryable';
+}
+
+interface ChunkedUploadOutcome {
+  ok: boolean;
+  file?: UploadedProjectFilePayload;
+  error?: string;
+}
+
+// Chunked upload of one large file: slice into fixed-size blobs, PUT each
+// with bounded concurrency and per-chunk retries, resume once via the status
+// endpoint if any chunk exhausts its retries, then assemble server-side.
+// Aborts (DELETEs) staging on any failure so nothing lingers.
+async function uploadChunkedProjectFile(
+  projectId: string,
+  file: File,
+  dir?: string,
+  workspaceContext?: WorkspaceCollabContext | null,
+): Promise<ChunkedUploadOutcome> {
+  const base = `/api/projects/${encodeURIComponent(projectId)}/upload/${chunkedUploadId()}`;
+  const authHeaders: Record<string, string> = workspaceContext
+    ? { ...(workspaceProjectHeaders(workspaceContext) as Record<string, string>) }
+    : {};
+  const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_UPLOAD_SIZE));
+  const chunkHeaders: Record<string, string> = {
+    ...authHeaders,
+    'content-type': 'application/octet-stream',
+    'x-total-chunks': String(totalChunks),
+    'x-file-name': encodeURIComponent(file.name),
+  };
+  if (dir) chunkHeaders['x-dir'] = encodeURIComponent(dir);
+
+  const indexes = Array.from({ length: totalChunks }, (_, i) => i);
+  const cursor = { next: 0 };
+
+  const runWorkers = async (pending: number[]) => {
+    cursor.next = 0;
+    const queue = pending;
+    const failed: number[] = [];
+    const workers = Array.from(
+      { length: Math.min(CHUNK_UPLOAD_CONCURRENCY, queue.length) },
+      async () => {
+        while (cursor.next < queue.length) {
+          const index = queue[cursor.next];
+          cursor.next += 1;
+          if (index === undefined) return;
+          const blob = file.slice(index * CHUNK_UPLOAD_SIZE, (index + 1) * CHUNK_UPLOAD_SIZE);
+          const outcome = await putChunkWithRetry(`${base}/chunk/${index}`, blob, chunkHeaders);
+          if (outcome !== 'ok') failed.push(index);
+        }
+      },
+    );
+    await Promise.all(workers);
+    return failed;
+  };
+
+  try {
+    const firstPass = await runWorkers(indexes);
+    if (firstPass.length > 0) {
+      // Resume pass: ask the daemon which chunks landed, re-PUT the missing
+      // ones once. Never trust the client range — always reconcile against
+      // the authoritative received list.
+      const status = await fetch(base, { headers: authHeaders });
+      let missing = firstPass;
+      if (status.ok) {
+        const body = (await status.json()) as { received?: number[]; totalChunks?: number };
+        const receivedSet = new Set(body.received ?? []);
+        missing = indexes.filter((i) => !receivedSet.has(i));
+      }
+      const still = await runWorkers(missing);
+      if (still.length > 0) {
+        return { ok: false, error: 'upload failed (chunks unrecoverable)' };
+      }
+    }
+
+    const complete = await fetch(`${base}/complete`, {
+      method: 'POST',
+      headers: { ...authHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: file.name, dir: dir || undefined, totalChunks }),
+    });
+    if (!complete.ok) {
+      const payload = (await complete.json().catch(() => null)) as
+        | { code?: string; error?: string }
+        | null;
+      return { ok: false, error: payload?.error ?? `upload failed (${complete.status})` };
+    }
+    invalidateProjectFilesCache(projectId, workspaceContext);
+    const json = (await complete.json()) as { files: UploadedProjectFilePayload[] };
+    const saved = json.files?.[0];
+    if (!saved) return { ok: false, error: 'upload response missing file' };
+    return { ok: true, file: saved };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  } finally {
+    // Abort staging on failure; on success the daemon already purged staging.
+    fetch(base, { method: 'DELETE', headers: authHeaders }).catch(() => {});
+  }
 }
 
 export async function uploadProjectFiles(
@@ -3129,9 +3274,36 @@ export async function uploadProjectFiles(
   let error: string | undefined;
   const targetDir = dir?.trim() ?? '';
 
-  for (let i = 0; i < files.length; i += PROJECT_UPLOAD_BATCH_SIZE) {
-    const batch = files.slice(i, i + PROJECT_UPLOAD_BATCH_SIZE);
-    const remaining = files.slice(i + PROJECT_UPLOAD_BATCH_SIZE);
+  // Files above the chunk threshold ride the chunked path first (each one
+  // stands alone; the direct multipart batches below stay unchanged for small
+  // files). A chunked failure only fails its own file — the composer shows
+  // one banner entry per failed attachment, like the direct path.
+  for (const file of files.filter((f) => f.size > CHUNK_UPLOAD_THRESHOLD)) {
+    if (file.size > CHUNK_UPLOAD_FILE_MAX) {
+      failed.push({ name: file.name, code: 'FILE_TOO_LARGE', error: 'file exceeds the 200MB upload limit' });
+      error ??= 'file exceeds the 200MB upload limit';
+      continue;
+    }
+    const result = await uploadChunkedProjectFile(projectId, file, targetDir || undefined, workspaceContext);
+    if (result.ok && result.file) {
+      invalidateProjectFilesCache(projectId, workspaceContext);
+      uploaded.push({
+        path: result.file.path,
+        name: result.file.originalName ?? result.file.name,
+        kind: looksLikeImage(result.file.path) ? 'image' : 'file',
+        size: result.file.size,
+      });
+    } else {
+      const message = result.error || 'upload failed';
+      error ??= message;
+      failed.push({ name: file.name, error: message });
+    }
+  }
+
+  const directFiles = files.filter((f) => f.size <= CHUNK_UPLOAD_THRESHOLD);
+  for (let i = 0; i < directFiles.length; i += PROJECT_UPLOAD_BATCH_SIZE) {
+    const batch = directFiles.slice(i, i + PROJECT_UPLOAD_BATCH_SIZE);
+    const remaining = directFiles.slice(i + PROJECT_UPLOAD_BATCH_SIZE);
     const form = new FormData();
     // The `dir` field MUST be appended before the file parts: the daemon's
     // multer destination resolver reads req.body.dir as each file streams in,
