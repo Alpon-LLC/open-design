@@ -1,4 +1,5 @@
 import {
+  PROJECT_UPLOAD_MAX_BYTES,
   PUBLIC_FILE_MANUAL_REVOKE_REQUIRED,
   workspaceContextHasTeamIdentity,
   type PublicFileManualRevokeRequiredData,
@@ -3104,6 +3105,61 @@ export async function importProjectFigma(
 // follow-up listFiles round-trip.
 const PROJECT_UPLOAD_BATCH_SIZE = 12;
 
+// Chunked upload for files too big for a single request on CDN-fronted
+// deployments (e.g. Cloudflare caps proxied request bodies at 100MB).
+// Files above CHUNK_UPLOAD_THRESHOLD are split into CHUNK_UPLOAD_SIZE blobs,
+// PUT one-by-one, then assembled server-side on complete. Keep these aligned
+// with apps/daemon/src/routes/project/upload-chunks.ts; the total-upload cap
+// is the shared PROJECT_UPLOAD_MAX_BYTES contract enforced server-side too.
+const CHUNK_UPLOAD_SIZE = 5 * 1024 * 1024;
+const CHUNK_UPLOAD_THRESHOLD = 10 * 1024 * 1024;
+const CHUNK_UPLOAD_CONCURRENCY = 3;
+const CHUNK_UPLOAD_MAX_ATTEMPTS = 3;
+
+interface UploadedProjectFilePayload {
+  name: string;
+  path: string;
+  size?: number;
+  originalName?: string;
+}
+
+function chunkedUploadId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID().replace(/-/g, '');
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+}
+
+// The daemon's resolved upload cap (GET /api/config — OD_MAX_UPLOAD_MB env →
+// else the shared PROJECT_UPLOAD_MAX_BYTES default) is the canonical value.
+// Fetched once and cached per page load; if the fetch fails the shared
+// contract default keeps the client guard usable. Falling back to the shared
+// constant can only over-restrict, never let the composer exceed the
+// server-side cap.
+let uploadConfigCache: Promise<number> | null = null;
+
+function clientUploadMaxBytes(): Promise<number> {
+  uploadConfigCache ??= (async () => {
+    try {
+      const resp = await fetch('/api/config');
+      if (resp.ok) {
+        const json = (await resp.json()) as { maxUploadBytes?: unknown };
+        if (typeof json.maxUploadBytes === 'number'
+          && Number.isFinite(json.maxUploadBytes)
+          && json.maxUploadBytes > 0) {
+          return json.maxUploadBytes;
+        }
+      }
+    } catch {
+      // fall through to the shared default
+    }
+    return PROJECT_UPLOAD_MAX_BYTES;
+  })();
+  return uploadConfigCache;
+}
+
+const chunkUploadDelay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 export interface ProjectUploadFailure {
   name: string;
   code?: string;
@@ -3116,6 +3172,124 @@ export interface UploadProjectFilesResult {
   error?: string;
 }
 
+// PUTs one 5 MiB slice; `retryable` distinguishes transport/5xx failures
+// (worth a resume pass) from 4xx rejections (not worth retrying).
+async function putChunkWithRetry(
+  url: string,
+  blob: Blob,
+  headers: Record<string, string>,
+): Promise<'ok' | 'retryable' | 'reject'> {
+  for (let attempt = 1; attempt <= CHUNK_UPLOAD_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const resp = await fetch(url, { method: 'PUT', headers, body: blob });
+      if (resp.ok) return 'ok';
+      if (resp.status >= 400 && resp.status < 500) return 'reject';
+    } catch {
+      // network error — fall through to backoff
+    }
+    if (attempt < CHUNK_UPLOAD_MAX_ATTEMPTS) {
+      await chunkUploadDelay(200 * attempt);
+    }
+  }
+  return 'retryable';
+}
+
+interface ChunkedUploadOutcome {
+  ok: boolean;
+  file?: UploadedProjectFilePayload;
+  error?: string;
+}
+
+// Chunked upload of one large file: slice into fixed-size blobs, PUT each
+// with bounded concurrency and per-chunk retries, resume once via the status
+// endpoint if any chunk exhausts its retries, then assemble server-side.
+// Aborts (DELETEs) staging on any failure so nothing lingers.
+async function uploadChunkedProjectFile(
+  projectId: string,
+  file: File,
+  dir?: string,
+  workspaceContext?: WorkspaceCollabContext | null,
+): Promise<ChunkedUploadOutcome> {
+  const base = `/api/projects/${encodeURIComponent(projectId)}/upload/${chunkedUploadId()}`;
+  const authHeaders: Record<string, string> = workspaceContext
+    ? { ...(workspaceProjectHeaders(workspaceContext) as Record<string, string>) }
+    : {};
+  const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_UPLOAD_SIZE));
+  const chunkHeaders: Record<string, string> = {
+    ...authHeaders,
+    'content-type': 'application/octet-stream',
+    'x-total-chunks': String(totalChunks),
+    'x-file-name': encodeURIComponent(file.name),
+  };
+  if (dir) chunkHeaders['x-dir'] = encodeURIComponent(dir);
+
+  const indexes = Array.from({ length: totalChunks }, (_, i) => i);
+  const cursor = { next: 0 };
+
+  const runWorkers = async (pending: number[]) => {
+    cursor.next = 0;
+    const queue = pending;
+    const failed: number[] = [];
+    const workers = Array.from(
+      { length: Math.min(CHUNK_UPLOAD_CONCURRENCY, queue.length) },
+      async () => {
+        while (cursor.next < queue.length) {
+          const index = queue[cursor.next];
+          cursor.next += 1;
+          if (index === undefined) return;
+          const blob = file.slice(index * CHUNK_UPLOAD_SIZE, (index + 1) * CHUNK_UPLOAD_SIZE);
+          const outcome = await putChunkWithRetry(`${base}/chunk/${index}`, blob, chunkHeaders);
+          if (outcome !== 'ok') failed.push(index);
+        }
+      },
+    );
+    await Promise.all(workers);
+    return failed;
+  };
+
+  try {
+    const firstPass = await runWorkers(indexes);
+    if (firstPass.length > 0) {
+      // Resume pass: ask the daemon which chunks landed, re-PUT the missing
+      // ones once. Never trust the client range — always reconcile against
+      // the authoritative received list.
+      const status = await fetch(base, { headers: authHeaders });
+      let missing = firstPass;
+      if (status.ok) {
+        const body = (await status.json()) as { received?: number[]; totalChunks?: number };
+        const receivedSet = new Set(body.received ?? []);
+        missing = indexes.filter((i) => !receivedSet.has(i));
+      }
+      const still = await runWorkers(missing);
+      if (still.length > 0) {
+        return { ok: false, error: 'upload failed (chunks unrecoverable)' };
+      }
+    }
+
+    const complete = await fetch(`${base}/complete`, {
+      method: 'POST',
+      headers: { ...authHeaders, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: file.name, dir: dir || undefined, totalChunks }),
+    });
+    if (!complete.ok) {
+      const payload = (await complete.json().catch(() => null)) as
+        | { code?: string; error?: string }
+        | null;
+      return { ok: false, error: payload?.error ?? `upload failed (${complete.status})` };
+    }
+    invalidateProjectFilesCache(projectId, workspaceContext);
+    const json = (await complete.json()) as { files: UploadedProjectFilePayload[] };
+    const saved = json.files?.[0];
+    if (!saved) return { ok: false, error: 'upload response missing file' };
+    return { ok: true, file: saved };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  } finally {
+    // Abort staging on failure; on success the daemon already purged staging.
+    fetch(base, { method: 'DELETE', headers: authHeaders }).catch(() => {});
+  }
+}
+
 export async function uploadProjectFiles(
   projectId: string,
   files: File[],
@@ -3124,20 +3298,73 @@ export async function uploadProjectFiles(
 ): Promise<UploadProjectFilesResult> {
   if (files.length === 0) return { uploaded: [], failed: [] };
 
-  const uploaded: ChatAttachment[] = [];
-  const failed: ProjectUploadFailure[] = [];
-  let error: string | undefined;
   const targetDir = dir?.trim() ?? '';
 
-  for (let i = 0; i < files.length; i += PROJECT_UPLOAD_BATCH_SIZE) {
-    const batch = files.slice(i, i + PROJECT_UPLOAD_BATCH_SIZE);
-    const remaining = files.slice(i + PROJECT_UPLOAD_BATCH_SIZE);
+  // Results are keyed by the file's position in the original selection so the
+  // staged chips keep the user's order even though uploads interleave the
+  // chunked and multipart paths.
+  interface ResultEntry {
+    index: number;
+    attachment?: ChatAttachment;
+    failure?: ProjectUploadFailure;
+  }
+  const results: ResultEntry[] = [];
+
+  // Per-file routing: >threshold rides the chunked path (one file per request
+  // sequence), ≤threshold keeps the original multipart batches. A chunked
+  // failure only fails its own file — one banner entry per failed attachment,
+  // like the direct path.
+  let chunkedError: string | undefined;
+  // The daemon-resolved cap is only fetched when a chunked file is present,
+  // so pure-small batches never pay a /api/config round-trip.
+  let maxUploadBytes: number | null = null;
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index]!;
+    if (file.size <= CHUNK_UPLOAD_THRESHOLD) continue;
+    maxUploadBytes ??= await clientUploadMaxBytes();
+    if (file.size > maxUploadBytes) {
+      const message = 'file exceeds the upload size limit';
+      results.push({ index, failure: { name: file.name, code: 'FILE_TOO_LARGE', error: message } });
+      chunkedError ??= message;
+      continue;
+    }
+    const result = await uploadChunkedProjectFile(
+      projectId,
+      file,
+      targetDir || undefined,
+      workspaceContext,
+    );
+    if (result.ok && result.file) {
+      invalidateProjectFilesCache(projectId, workspaceContext);
+      results.push({
+        index,
+        attachment: {
+          path: result.file.path,
+          name: result.file.originalName ?? result.file.name,
+          kind: looksLikeImage(result.file.path) ? 'image' : 'file',
+          size: result.file.size,
+        },
+      });
+    } else {
+      const message = result.error || 'upload failed';
+      results.push({ index, failure: { name: file.name, error: message } });
+      chunkedError ??= message;
+    }
+  }
+
+  const directSources = files
+    .map((file, index) => ({ file, index }))
+    .filter((entry) => entry.file.size <= CHUNK_UPLOAD_THRESHOLD);
+  let directError: string | undefined;
+  for (let i = 0; i < directSources.length; i += PROJECT_UPLOAD_BATCH_SIZE) {
+    const batch = directSources.slice(i, i + PROJECT_UPLOAD_BATCH_SIZE);
+    const remaining = directSources.slice(i + PROJECT_UPLOAD_BATCH_SIZE);
     const form = new FormData();
     // The `dir` field MUST be appended before the file parts: the daemon's
     // multer destination resolver reads req.body.dir as each file streams in,
     // and busboy only exposes fields parsed earlier in the multipart body.
     if (targetDir) form.append('dir', targetDir);
-    for (const f of batch) form.append('files', f);
+    for (const entry of batch) form.append('files', entry.file);
 
     try {
       const resp = await fetch(
@@ -3153,12 +3380,12 @@ export async function uploadProjectFiles(
         const payload = (await resp.json().catch(() => null)) as
           | { code?: string; error?: string }
           | null;
-        error = payload?.error ?? `upload failed (${resp.status})`;
-        for (const f of batch) {
-          failed.push({ name: f.name, code: payload?.code, error: error });
+        directError = payload?.error ?? `upload failed (${resp.status})`;
+        for (const entry of batch) {
+          results.push({ index: entry.index, failure: { name: entry.file.name, code: payload?.code, error: directError } });
         }
-        for (const f of remaining) {
-          failed.push({ name: f.name, code: payload?.code, error: error });
+        for (const entry of remaining) {
+          results.push({ index: entry.index, failure: { name: entry.file.name, code: payload?.code, error: directError } });
         }
         break;
       }
@@ -3168,36 +3395,47 @@ export async function uploadProjectFiles(
         files: { name: string; path: string; size?: number; originalName?: string }[];
       };
       const responseFiles = json.files ?? [];
-      uploaded.push(
-        ...responseFiles.map((f) => ({
-          path: f.path,
-          name: f.originalName ?? f.name,
-          kind: looksLikeImage(f.name) ? ('image' as const) : ('file' as const),
-          size: f.size,
-        })),
-      );
-      // Server preserves request order; any dropped files are unmatched at the batch tail.
+      // Server preserves request order; match entries back to their original
+      // selection positions so staged chips stay in the user's order.
+      responseFiles.forEach((f, j) => {
+        const source = batch[j];
+        if (!source) return;
+        results.push({
+          index: source.index,
+          attachment: {
+            path: f.path,
+            name: f.originalName ?? f.name,
+            kind: looksLikeImage(f.name) ? 'image' : 'file',
+            size: f.size,
+          },
+        });
+      });
+      // Any dropped files are unmatched at the batch tail.
       if (responseFiles.length < batch.length) {
-        error ??= 'some files could not be stored';
-        for (const f of batch.slice(responseFiles.length)) {
-          failed.push({
-            name: f.name,
-            error: error ?? 'some files could not be stored',
+        directError ??= 'some files could not be stored';
+        for (const source of batch.slice(responseFiles.length)) {
+          results.push({
+            index: source.index,
+            failure: { name: source.file.name, error: directError ?? 'some files could not be stored' },
           });
         }
       }
     } catch {
-      error = 'upload request failed';
-      for (const f of batch) {
-        failed.push({ name: f.name, error });
+      directError = 'upload request failed';
+      for (const entry of batch) {
+        results.push({ index: entry.index, failure: { name: entry.file.name, error: directError } });
       }
-      for (const f of remaining) {
-        failed.push({ name: f.name, error });
+      for (const entry of remaining) {
+        results.push({ index: entry.index, failure: { name: entry.file.name, error: directError } });
       }
       break;
     }
   }
 
+  const ordered = results.slice().sort((a, b) => a.index - b.index);
+  const uploaded = ordered.flatMap((entry) => (entry.attachment ? [entry.attachment] : []));
+  const failed = ordered.flatMap((entry) => (entry.failure ? [entry.failure] : []));
+  const error = chunkedError ?? directError;
   return { uploaded, failed, error };
 }
 

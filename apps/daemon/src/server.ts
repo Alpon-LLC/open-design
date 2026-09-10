@@ -830,6 +830,7 @@ import { registerDesignSystemToolRoutes } from './routes/design-system-tool.js';
 import { registerDeployRoutes, registerDeploymentCheckRoutes } from './routes/deploy.js';
 import { registerMediaRoutes } from './routes/media.js';
 import { registerProjectRoutes, registerProjectArtifactRoutes, registerProjectFileRoutes, registerProjectUploadRoutes, createEnforceWorkspaceProjectMutation } from './routes/project/index.js';
+import { registerProjectChunkUploadRoutes, resolveUploadMaxBytes } from './routes/project/upload-chunks.js';
 import { registerVelaRoutes } from './routes/vela.js';
 import { registerFinalizeRoutes, registerImportRoutes, registerProjectExportRoutes } from './import-export-routes.js';
 import { registerHandoffRoutes } from './routes/handoff.js';
@@ -2550,6 +2551,7 @@ function createAmrModelUnavailablePayload(model, init = {}) {
 
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 fs.mkdirSync(ARTIFACTS_DIR, { recursive: true });
+fs.mkdirSync(path.join(RUNTIME_DATA_DIR, 'upload-staging'), { recursive: true });
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -2899,6 +2901,11 @@ export async function startServer({
   // registered before the global parser so it claims the body first.
   app.use('/api/artifacts/save', express.json({ limit: '128mb' }));
   app.use('/api/artifacts/lint', express.json({ limit: '128mb' }));
+  // Chunked project upload: large attachment files arrive as many small
+  // octet-stream chunk PUTs so every request stays far below the edge/CDN
+  // 100MB request-body cap. The raw parser must claim this body before the
+  // global JSON parser (registered first, same per-route override pattern).
+  app.use('/api/projects/:id/upload/:uploadId/chunk/:index', express.raw({ type: '*/*', limit: '16mb' }));
   // Global JSON body cap. The agent/ACP harness round-trips large context,
   // tool, and chat payloads that run well past a conservative 4mb, so the
   // default is raised to 128mb (matching /api/library/ingest) to avoid 413s on
@@ -7700,6 +7707,16 @@ export async function startServer({
     res.json({ ok: true, version: versionInfo.version });
   });
 
+  // Daemon-resolved runtime limits. The upload cap (OD_MAX_UPLOAD_MB env →
+  // else the shared contracts default) is resolved once here and by the
+  // chunked-upload routes' own resolver from the same inputs, so /api/config
+  // is the canonical value the web composer guards its file-size precheck
+  // against. Must not be cached (an env override must not outlive its daemon).
+  app.get('/api/config', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ maxUploadBytes: resolveUploadMaxBytes() });
+  });
+
   app.get('/api/ready', async (_req, res) => {
     const versionInfo = await readCurrentAppVersionInfo();
     const ready = !daemonShuttingDown;
@@ -9220,6 +9237,17 @@ export async function startServer({
       projectIsUnmaterializedSharedPlaceholder(projectId),
     projectFiles: projectFileDeps,
     verifyWorkspaceRequestAuthority,
+  });
+  registerProjectChunkUploadRoutes(app, {
+    db,
+    http: httpDeps,
+    node: nodeDeps,
+    paths: { PROJECTS_DIR, RUNTIME_DATA_DIR },
+    projectStore: projectStoreDeps,
+    projectFiles: projectFileDeps,
+    authorizeProjectRequest,
+    isProjectUnmaterializedPlaceholder: (projectId) =>
+      projectIsUnmaterializedSharedPlaceholder(projectId),
   });
 
   const composeDaemonSystemPrompt = async ({
