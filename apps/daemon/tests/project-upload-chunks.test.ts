@@ -281,3 +281,97 @@ describe('chunked project upload size cap (OD_MAX_UPLOAD_MB=1)', () => {
     expect(body.maxUploadBytes).toBe(1024 * 1024);
   });
 });
+
+// Slow chunk uploads stream keepalive ACK bytes while the daemon is still
+// reading the body; the real verdict lands as the final whitespace-prefixed
+// JSON. OD_CHUNK_ACK_MS is overridden to 300ms so the test can see interim
+// ACK bytes without waiting the 15s production interval.
+describe('chunk PUT keepalive ACKs (OD_CHUNK_ACK_MS=300ms)', () => {
+  let server: http.Server;
+  let defaultBase: string;
+  let host: string;
+  let port: number;
+
+  const { request: rawRequest } = require('node:http') as typeof import('node:http');
+
+  beforeAll(async () => {
+    process.env.OD_CHUNK_ACK_MS = '300';
+    const started = (await startServer({ port: 0, returnServer: true })) as {
+      url: string;
+      server: http.Server;
+    };
+    server = started.server;
+    const url = new URL(started.url);
+    host = url.hostname;
+    port = Number(url.port);
+    defaultBase = `${url.protocol}//127.0.0.1:${url.port}/api/projects/proj-chunk-upload-test/upload`;
+  });
+
+  afterAll(() => new Promise<void>((resolve) => {
+    delete process.env.OD_CHUNK_ACK_MS;
+    (server as any).closeAllConnections?.();
+    server.close(() => resolve());
+  }));
+
+  interface SlowPutResult {
+    chunks: Buffer[];
+    keepalive: string | undefined;
+  }
+
+  function slowChunkPut(uploadId: string, index: number, payload: Buffer): Promise<SlowPutResult> {
+    return new Promise((resolve, reject) => {
+      const req = rawRequest({
+        host,
+        port,
+        method: 'PUT',
+        path: `/api/projects/proj-chunk-upload-test/upload/${uploadId}/chunk/${index}`,
+        // Manual chunked encoding so we control the write cadence.
+        headers: {
+          'content-type': 'application/octet-stream',
+          'transfer-encoding': 'chunked',
+          'x-total-chunks': '1',
+          'x-file-name': encodeURIComponent('slow.bin'),
+        },
+      }, (res: any) => {
+        const parts: Buffer[] = [];
+        res.on('data', (c: Buffer) => parts.push(c));
+        res.on('error', reject);
+        res.on('end', () => resolve({
+          chunks: parts,
+          keepalive: res.headers['x-chunk-keepalive'],
+        }));
+      });
+      req.on('error', reject);
+      const firstStop = Math.floor(payload.length / 2);
+      req.write(payload.subarray(0, firstStop));
+      // Hold the request open past one ACK interval so the daemon must have
+      // emitted at least one keepalive byte while the body is still streaming.
+      setTimeout(() => {
+        req.write(payload.subarray(firstStop));
+        req.end();
+      }, 700);
+    });
+  }
+
+  it('sends interim ACK bytes mid-body and finishes with JSON {"ok":true}', async () => {
+    const payload = Buffer.alloc(64 * 1024, 0x33);
+    const result: SlowPutResult = await slowChunkPut('chunktest-slow1', 0, payload);
+    expect(result.keepalive).toBe('1');
+    const body = Buffer.concat(result.chunks).toString('utf8');
+    // Heartbeats are whitespace-only; the tail payload parses as JSON.
+    const final = JSON.parse(body) as { ok?: boolean };
+    expect(final.ok).toBe(true);
+    // Fast-path uploads (body arrives before first ACK) still answer a plain JSON {ok:true}.
+    const fast = await fetch(`${defaultBase}/chunktest-slow1/chunk/0`, {
+      method: 'PUT',
+      headers: {
+        'content-type': 'application/octet-stream',
+        'x-total-chunks': '1',
+        'x-file-name': encodeURIComponent('fast.bin'),
+      },
+      body: Buffer.from('fast'),
+    });
+    expect(fast.status).toBe(200);
+    expect(await fast.json()).toEqual({ ok: true });
+  });
+});

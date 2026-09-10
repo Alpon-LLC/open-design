@@ -185,6 +185,90 @@ export function registerProjectChunkUploadRoutes(
       'writeFiles',
     );
 
+  // Chunk PUTs may outlast edge/CDN idle timeouts (Cloudflare drops a proxied
+  // request unless the ORIGIN sends response bytes at least every ~100-125s on
+  // non-enterprise plans). While the chunk body is still streaming in, the
+  // collector writes a tiny ACK byte down the (already-open) response on an
+  // interval so the edge never sees a quiet upload. The first ACK pins the
+  // response at HTTP 200; the real verdict arrives as the final JSON payload:
+  // {"ok":true} or {"ok":false,...} — whitespace-prefixed, still JSON.parse-able.
+  const CHUNK_ACK_INTERVAL_MS = (() => {
+    const ms = Number.parseInt(process.env.OD_CHUNK_ACK_MS ?? '', 10);
+    return Number.isInteger(ms) && ms > 0 ? ms : 15_000;
+  })();
+  const CHUNK_UPLOAD_BODY_MAX_BYTES = 16 * 1024 * 1024;
+
+  function finishChunkResponse(
+    res: any,
+    send: (payload: string) => void,
+    ok: boolean,
+    error?: string,
+  ) {
+    if (res.writableEnded) return;
+    const payload = ok
+      ? JSON.stringify({ ok: true })
+      : JSON.stringify({ ok: false, ...(error ? { error } : {}) });
+    send(payload);
+  }
+
+  interface CollectedChunk {
+    buffer: Buffer | null;
+    size: number;
+    /** True once keepalive ACK bytes pinned the response at 200. */
+    acked: boolean;
+  }
+
+  function collectChunkBody(req: any, res: any): Promise<CollectedChunk> {
+    return new Promise((resolve) => {
+      const chunks: Buffer[] = [];
+      let received = 0;
+      let acked = false;
+      let settled = false;
+
+      const finish = (buffer: Buffer | null) => {
+        if (settled) return;
+        settled = true;
+        clearInterval(heartbeat);
+        resolve({ buffer, size: received, acked });
+      };
+
+      const heartbeat = setInterval(() => {
+        try {
+          if (res.writableEnded || res.destroyed) {
+            clearInterval(heartbeat);
+            return;
+          }
+          if (!res.headersSent) {
+            res.status(200);
+            res.setHeader('content-type', 'text/plain');
+            res.setHeader('cache-control', 'no-store');
+            res.setHeader('x-chunk-keepalive', '1');
+          }
+          acked = true;
+          res.write(' ');
+        } catch {
+          clearInterval(heartbeat);
+        }
+      }, CHUNK_ACK_INTERVAL_MS);
+
+      res.on('close', () => finish(null));
+      req.on('aborted', () => finish(null));
+      req.on('error', () => finish(null));
+      req.on('data', (chunk: Buffer) => {
+        received += chunk.length;
+        if (received > CHUNK_UPLOAD_BODY_MAX_BYTES) {
+          // Over the per-chunk ceiling; stop buffering. If ACKs already
+          // pinned a 200, the verdict goes out as {"ok":false} instead.
+          finish(null);
+          req.destroy();
+          return;
+        }
+        chunks.push(chunk);
+      });
+      req.on('end', () => finish(Buffer.concat(chunks)));
+    });
+  }
+
   app.put(
     '/api/projects/:id/upload/:uploadId/chunk/:index',
     async (req, res) => {
@@ -204,40 +288,73 @@ export function registerProjectChunkUploadRoutes(
         if (chunkIndex >= totalChunks) {
           return sendApiError(res, 400, 'BAD_REQUEST', 'chunk index out of range');
         }
-        const body = Buffer.isBuffer(req.body) ? req.body : null;
-        if (!body || body.length === 0) {
-          return sendApiError(res, 400, 'BAD_REQUEST', 'chunk body required');
+        const fileNameRaw = headerString(req.headers['x-file-name']);
+        if (!fileNameRaw) {
+          return sendApiError(res, 400, 'BAD_REQUEST', 'x-file-name header required');
         }
-        if (!await gateWrite(req, res, req.params.id)) return;
+        const dirRaw = headerString(req.headers['x-dir']);
+        const uploadDir = dirRaw ? decodeURIComponent(dirRaw) : '';
+        // Gate BEFORE consuming the body so rejections keep normal status
+        // codes (once keepalive ACKs start, the response status is fixed).
+        if (!await gateWrite(req, res, req.params.id)) {
+          req.destroy();
+          return;
+        }
         const stageDir = stagingDirFor(stagingRoot, uploadId);
         await fs.promises.mkdir(stageDir, { recursive: true });
         let meta = await readUploadMeta(fs, stageDir);
-        // Byte budget: cumulative per-chunk sizes are tracked in meta.json so a
-        // non-web client cannot stage (and later assemble) an oversized blob.
         if (meta && meta.totalChunks !== totalChunks) {
           return sendApiError(res, 400, 'BAD_REQUEST', 'total chunks does not match previous upload');
         }
         if (!meta) {
-          const decodedName = decodeURIComponent(headerString(req.headers['x-file-name']));
-          if (!decodedName) return sendApiError(res, 400, 'BAD_REQUEST', 'x-file-name header required');
-          const dirRaw = headerString(req.headers['x-dir']);
-          const dir = dirRaw ? decodeURIComponent(dirRaw) : '';
           meta = {
             totalChunks,
-            name: sanitizeName(decodedName),
-            dir,
+            name: sanitizeName(decodeURIComponent(fileNameRaw)),
+            dir: uploadDir,
             bytesByChunk: {},
           };
         }
-        const bytesByChunk = { ...(meta.bytesByChunk ?? {}), [String(chunkIndex)]: body.length };
-        const totalBytes = Object.values(bytesByChunk).reduce((sum, n) => sum + n, 0);
-        if (totalBytes > maxUploadBytes) {
-          return sendApiError(res, 413, 'FILE_TOO_LARGE', 'assembled upload exceeds the maximum size');
+
+        const collected = await collectChunkBody(req, res);
+        // Body fully received from here on; ACK bytes may have pinned a 200.
+        try {
+          if (!collected.buffer) {
+            if (collected.acked) {
+              finishChunkResponse(res, (payload) => res.end(payload), false, 'chunk rejected');
+              return;
+            }
+            return sendApiError(res, 413, 'FILE_TOO_LARGE', 'chunk too large');
+          }
+          const body = collected.buffer;
+          if (body.length === 0) {
+            return sendApiError(res, 400, 'BAD_REQUEST', 'chunk body required');
+          }
+          // Byte budget: cumulative per-chunk sizes are tracked in meta.json so a
+          // non-web client cannot stage (and later assemble) an oversized blob.
+          const bytesByChunk = { ...(meta.bytesByChunk ?? {}), [String(chunkIndex)]: body.length };
+          const totalBytes = Object.values(bytesByChunk).reduce((sum: number, n: number) => sum + n, 0);
+          if (totalBytes > maxUploadBytes) {
+            if (collected.acked) {
+              finishChunkResponse(res, (payload) => res.end(payload), false, 'assembled upload exceeds the maximum size');
+              return;
+            }
+            return sendApiError(res, 413, 'FILE_TOO_LARGE', 'assembled upload exceeds the maximum size');
+          }
+          await fs.promises.writeFile(path.join(stageDir, String(chunkIndex)), body);
+          await writeUploadMeta(fs, stageDir, { ...meta, bytesByChunk });
+          sweepStaleStagingDirs(fs, stagingRoot).catch(() => {});
+          if (collected.acked && res.headersSent) {
+            finishChunkResponse(res, (payload) => res.end(payload), true);
+          } else {
+            res.json({ ok: true });
+          }
+        } catch (err) {
+          if (collected.acked && res.headersSent) {
+            finishChunkResponse(res, (payload) => res.end(payload), false, 'chunk upload failed');
+            return;
+          }
+          throw err;
         }
-        await fs.promises.writeFile(path.join(stageDir, String(chunkIndex)), body);
-        await writeUploadMeta(fs, stageDir, { ...meta, bytesByChunk });
-        sweepStaleStagingDirs(fs, stagingRoot).catch(() => {});
-        res.json({ ok: true });
       } catch {
         sendApiError(res, 500, 'INTERNAL_ERROR', 'chunk upload failed');
       }
