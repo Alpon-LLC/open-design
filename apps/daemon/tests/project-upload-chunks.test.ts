@@ -60,6 +60,41 @@ describe('chunked project upload', () => {
     });
   }
 
+  it('lands a chunked upload with a dir header at the nested project path', async () => {
+    const id = 'chunktest-kitdir';
+    const payload = Buffer.from('brandkit-logo-bytes');
+    const put = await fetch(`${base}/${id}/chunk/0`, {
+      method: 'PUT',
+      headers: {
+        'content-type': 'application/octet-stream',
+        'x-total-chunks': '1',
+        'x-file-name': encodeURIComponent('logo.png'),
+        'x-dir': encodeURIComponent('logos'),
+      },
+      body: payload,
+    });
+    expect(put.status).toBe(200);
+    const complete = await fetch(`${base}/${id}/complete`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'logo.png', dir: 'logos', totalChunks: 1 }),
+    });
+    expect(complete.status).toBe(200);
+    const json = (await complete.json()) as {
+      files: { name: string; path: string; size: number; originalName: string }[];
+    };
+    expect(json.files[0]).toMatchObject({
+      name: 'logos/logo.png',
+      path: 'logos/logo.png',
+      originalName: 'logo.png',
+    });
+    // Byte-identical at the nested project dir path.
+    const saved = await readFile(
+      path.join(process.env.OD_DATA_DIR!, 'projects', projectId, 'logos', 'logo.png'),
+    );
+    expect(saved.toString()).toBe('brandkit-logo-bytes');
+  });
+
   it('assembles chunks byte-identical into the project dir and purges staging', async () => {
     const a = Buffer.alloc(5 * 1024 * 1024, 0x11);
     const b = Buffer.alloc(5 * 1024 * 1024, 0x22);

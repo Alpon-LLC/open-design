@@ -2565,7 +2565,12 @@ const upload = multer({
       );
     },
   }),
-  limits: { fileSize: 20 * 1024 * 1024 },
+  // Canonical cap (OD_MAX_UPLOAD_MB env → else PROJECT_UPLOAD_MAX_BYTES, same
+  // resolver the chunked routes and GET /api/config use) so the direct
+  // single-file upload is never a lower-bounder than the enforced ceiling.
+  // A direct POST >100MB may still 413 at the CDN edge before reaching here;
+  // browser clients chunk above the 10MB threshold instead.
+  limits: { fileSize: resolveUploadMaxBytes() },
 });
 
 const importUpload = multer({
@@ -8121,7 +8126,74 @@ export async function startServer({
     fetchProjectCreationWorkspaceDirectory,
     enforceWorkspaceProjectMutation: enforceAuthoritativeProjectMutation,
   });
+  // Large-`.fig` imports arrive by reference: the web client chunk-uploads the
+  // file into the project dir (multiple requests under the CDN edge cap) and
+  // then names the assembled path here. Same decode helper as the multipart
+  // path, canonical cap enforced, and the raw .fig is cleaned up on success
+  // (the multipart path never keeps it either).
+  const handleFigmaImportByPath = async (req: any, res: any) => {
+    try {
+      const project = getProject(db, req.params.id);
+      if (!project) return sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
+      if (!await enforceAuthoritativeProjectMutation(
+        req,
+        res,
+        sendApiError,
+        getWorkspaceProject,
+        getWorkspaceProjectByProjectId,
+        db,
+        project.id,
+        'writeFiles',
+      )) return;
+
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const storedPath = typeof body.path === 'string' ? body.path.trim() : '';
+      if (!storedPath) return sendApiError(res, 400, 'BAD_REQUEST', 'path is required');
+      // sanitizePath rejects traversal and cleans each segment; readProjectFile
+      // then resolves it safely against the project root (incl. baseDir
+      // imported projects) and refuses symlink escapes via resolveSafeReal.
+      let safeName: string;
+      try {
+        safeName = sanitizePath(storedPath);
+      } catch {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'invalid path');
+      }
+      const savedFile = await readProjectFile(PROJECTS_DIR, project.id, safeName, project.metadata);
+      if (savedFile.buffer.length > resolveUploadMaxBytes()) {
+        return sendApiError(res, 413, 'FILE_TOO_LARGE', 'file exceeds the upload size limit');
+      }
+      const projectRoot = resolveProjectDir(PROJECTS_DIR, project.id, project.metadata);
+      const notes = typeof body.notes === 'string' ? body.notes : undefined;
+      const result = await importFigmaFromBytes(savedFile.buffer, {
+        cwd: projectRoot,
+        label: safeName.split('/').filter(Boolean).pop() || 'figma-import.fig',
+        notes,
+      });
+      // Best-effort cleanup: the source .fig should not linger as a project
+      // file after a successful import (matches the multipart behavior).
+      await deleteProjectFile(PROJECTS_DIR, project.id, savedFile.name, project.metadata).catch(() => undefined);
+      return res.json(result);
+    } catch (caught) {
+      return sendApiError(
+        res,
+        400,
+        'FIGMA_IMPORT_FAILED',
+        caught instanceof Error ? caught.message : String(caught),
+      );
+    }
+  };
+
   app.post('/api/projects/:id/figma/import', (req, res) => {
+    // By-reference mode for large .fig imports: the client chunk-uploads the
+    // file into the project dir first (staying under the CDN edge cap), then
+    // POSTs a JSON body naming the assembled path. The decode step is the
+    // same importFigmaFromBytes helper the multipart path uses, so the two
+    // paths cannot drift. Small .fig imports keep the multipart path.
+    const contentType = (req.headers['content-type'] as string | undefined) ?? '';
+    if (/^\s*application\/json/i.test(contentType)) {
+      void handleFigmaImportByPath(req, res);
+      return;
+    }
     figmaUpload.single('file')(req, res, async (err) => {
       if (err) return sendMulterError(res, err);
       try {
