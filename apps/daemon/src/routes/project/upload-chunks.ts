@@ -198,6 +198,15 @@ export function registerProjectChunkUploadRoutes(
   })();
   const CHUNK_UPLOAD_BODY_MAX_BYTES = 16 * 1024 * 1024;
 
+  /**
+   * Chunk PUT response contract (pinned via keepalive ACK):
+   * - Fast path (body completes before the first ACK): normal status codes,
+   *   {"ok":true} or the sendApiError envelope.
+   * - ACKed path (the first ACK pins the response at HTTP 200): the verdict is
+   *   carried in the final payload — {"ok":true} or {"ok":false,"error":...}.
+   *   Non-web consumers MUST check the body verdict, not just the status, on
+   *   chunk PUT responses that carry the x-chunk-keepalive header.
+   */
   function finishChunkResponse(
     res: any,
     send: (payload: string) => void,
@@ -297,7 +306,12 @@ export function registerProjectChunkUploadRoutes(
         // Gate BEFORE consuming the body so rejections keep normal status
         // codes (once keepalive ACKs start, the response status is fixed).
         if (!await gateWrite(req, res, req.params.id)) {
-          req.destroy();
+          // Do NOT destroy here: the client may still be streaming the body,
+          // and tearing down the socket would drop the 401/403 before it
+          // flushes. Drain the remaining upload instead so the rejection is
+          // delivered and the connection closes cleanly.
+          req.on('error', () => {});
+          req.resume();
           return;
         }
         const stageDir = stagingDirFor(stagingRoot, uploadId);
