@@ -830,7 +830,7 @@ import { registerDesignSystemToolRoutes } from './routes/design-system-tool.js';
 import { registerDeployRoutes, registerDeploymentCheckRoutes } from './routes/deploy.js';
 import { registerMediaRoutes } from './routes/media.js';
 import { registerProjectRoutes, registerProjectArtifactRoutes, registerProjectFileRoutes, registerProjectUploadRoutes, createEnforceWorkspaceProjectMutation } from './routes/project/index.js';
-import { registerProjectChunkUploadRoutes } from './routes/project/upload-chunks.js';
+import { registerProjectChunkUploadRoutes, resolveUploadMaxBytes } from './routes/project/upload-chunks.js';
 import { registerVelaRoutes } from './routes/vela.js';
 import { registerFinalizeRoutes, registerImportRoutes, registerProjectExportRoutes } from './import-export-routes.js';
 import { registerHandoffRoutes } from './routes/handoff.js';
@@ -7705,6 +7705,16 @@ export async function startServer({
   app.get('/api/health', async (_req, res) => {
     const versionInfo = await readCurrentAppVersionInfo();
     res.json({ ok: true, version: versionInfo.version });
+  });
+
+  // Daemon-resolved runtime limits. The upload cap (OD_MAX_UPLOAD_MB env →
+  // else the shared contracts default) is resolved once here and by the
+  // chunked-upload routes' own resolver from the same inputs, so /api/config
+  // is the canonical value the web composer guards its file-size precheck
+  // against. Must not be cached (an env override must not outlive its daemon).
+  app.get('/api/config', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ maxUploadBytes: resolveUploadMaxBytes() });
   });
 
   app.get('/api/ready', async (_req, res) => {

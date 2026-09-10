@@ -221,6 +221,7 @@ describe('chunked project upload', () => {
 describe('chunked project upload size cap (OD_MAX_UPLOAD_MB=1)', () => {
   let server: http.Server;
   let capBase: string;
+  let configBase: string;
 
   beforeAll(async () => {
     process.env.OD_MAX_UPLOAD_MB = '1';
@@ -230,6 +231,7 @@ describe('chunked project upload size cap (OD_MAX_UPLOAD_MB=1)', () => {
     };
     server = started.server;
     capBase = `${started.url}/api/projects/proj-chunk-upload-test/upload`;
+    configBase = `${started.url}/api/config`;
   });
 
   afterAll(() => new Promise<void>((resolve) => {
@@ -269,5 +271,13 @@ describe('chunked project upload size cap (OD_MAX_UPLOAD_MB=1)', () => {
     expect((await put(1, Buffer.alloc(half))).status).toBe(200);
     const over = await put(2, Buffer.alloc(1));
     expect(over.status).toBe(413);
+  });
+
+  it('exposes the resolved cap via GET /api/config as the canonical value', async () => {
+    const res = await fetch(configBase);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    const body = (await res.json()) as { maxUploadBytes?: unknown };
+    expect(body.maxUploadBytes).toBe(1024 * 1024);
   });
 });

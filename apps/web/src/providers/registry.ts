@@ -3130,6 +3130,34 @@ function chunkedUploadId(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
 }
 
+// The daemon's resolved upload cap (GET /api/config — OD_MAX_UPLOAD_MB env →
+// else the shared PROJECT_UPLOAD_MAX_BYTES default) is the canonical value.
+// Fetched once and cached per page load; if the fetch fails the shared
+// contract default keeps the client guard usable. Falling back to the shared
+// constant can only over-restrict, never let the composer exceed the
+// server-side cap.
+let uploadConfigCache: Promise<number> | null = null;
+
+function clientUploadMaxBytes(): Promise<number> {
+  uploadConfigCache ??= (async () => {
+    try {
+      const resp = await fetch('/api/config');
+      if (resp.ok) {
+        const json = (await resp.json()) as { maxUploadBytes?: unknown };
+        if (typeof json.maxUploadBytes === 'number'
+          && Number.isFinite(json.maxUploadBytes)
+          && json.maxUploadBytes > 0) {
+          return json.maxUploadBytes;
+        }
+      }
+    } catch {
+      // fall through to the shared default
+    }
+    return PROJECT_UPLOAD_MAX_BYTES;
+  })();
+  return uploadConfigCache;
+}
+
 const chunkUploadDelay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export interface ProjectUploadFailure {
@@ -3287,10 +3315,14 @@ export async function uploadProjectFiles(
   // failure only fails its own file — one banner entry per failed attachment,
   // like the direct path.
   let chunkedError: string | undefined;
+  // The daemon-resolved cap is only fetched when a chunked file is present,
+  // so pure-small batches never pay a /api/config round-trip.
+  let maxUploadBytes: number | null = null;
   for (let index = 0; index < files.length; index += 1) {
     const file = files[index]!;
     if (file.size <= CHUNK_UPLOAD_THRESHOLD) continue;
-    if (file.size > PROJECT_UPLOAD_MAX_BYTES) {
+    maxUploadBytes ??= await clientUploadMaxBytes();
+    if (file.size > maxUploadBytes) {
       const message = 'file exceeds the upload size limit';
       results.push({ index, failure: { name: file.name, code: 'FILE_TOO_LARGE', error: message } });
       chunkedError ??= message;

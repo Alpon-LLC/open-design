@@ -44,9 +44,11 @@ function headerString(value: unknown): string {
 
 /**
  * Server-side upload cap: OD_MAX_UPLOAD_MB (positive integer MB) at
- * startServer time, else the shared contracts default.
+ * startServer time, else the shared contracts default. This is the canonical
+ * cap — GET /api/config exposes the same resolved value to the web composer
+ * so a runtime env change applies to both sides without a web rebuild.
  */
-function resolveUploadMaxBytes(): number {
+export function resolveUploadMaxBytes(): number {
   const mb = Number.parseInt(process.env.OD_MAX_UPLOAD_MB ?? '', 10);
   return Number.isInteger(mb) && mb > 0 ? mb * 1024 * 1024 : PROJECT_UPLOAD_MAX_BYTES;
 }

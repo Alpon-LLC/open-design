@@ -252,6 +252,14 @@ export interface UploadProjectFilesResponse extends ProjectFilesResponse {}
 // (CHUNK_UPLOAD file max) so the client and server caps cannot drift.
 export const PROJECT_UPLOAD_MAX_BYTES = 300 * 1024 * 1024;
 
+/** GET /api/config — daemon-resolved runtime limits. The server-resolved cap
+ * (OD_MAX_UPLOAD_MB override → else PROJECT_UPLOAD_MAX_BYTES) is the canonical
+ * source; the web composer reads it so a runtime env change applies to both
+ * sides without a web rebuild. */
+export interface DaemonConfigResponse {
+  maxUploadBytes: number;
+}
+
 export interface DeleteProjectFileResponse extends OkResponse {}
 
 export interface DeleteProjectFolderResponse extends OkResponse {}
