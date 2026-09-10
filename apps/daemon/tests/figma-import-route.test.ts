@@ -90,4 +90,60 @@ describe('POST /api/projects/:id/figma/import — HTTP layer', () => {
     const body = await resp.json();
     expect(body.error?.code ?? body.error).toMatch(/FIGMA_URL_NEEDS_MIGRATION/);
   });
+
+  it('imports a large .fig by reference after it was chunk-uploaded, then removes the source', async () => {
+    const figBytes = await buildSampleFig();
+    const stagedPath = 'imported/fixture.fig';
+
+    // Step 1: chunk-upload the .fig into the project dir (same routes the
+    // web client uses for a >100MB .fig).
+    const put = await fetch(`${baseUrl}/api/projects/${PROJECT_ID}/upload/chunktest-figbyref/chunk/0`, {
+      method: 'PUT',
+      headers: {
+        'content-type': 'application/octet-stream',
+        'x-total-chunks': '1',
+        'x-file-name': encodeURIComponent('fixture.fig'),
+        'x-dir': encodeURIComponent('imported'),
+      },
+      body: Buffer.from(figBytes),
+    });
+    expect(put.status).toBe(200);
+    const complete = await fetch(`${baseUrl}/api/projects/${PROJECT_ID}/upload/chunktest-figbyref/complete`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'fixture.fig', dir: 'imported', totalChunks: 1 }),
+    });
+    expect(complete.status).toBe(200);
+    const staged = (await complete.json()) as { files: { path: string }[] };
+    expect(staged.files?.[0]?.path).toBe(stagedPath);
+    expect(fs.existsSync(path.join(dataDir, 'projects', PROJECT_ID, stagedPath))).toBe(true);
+
+    // Step 2: import by reference (JSON mode).
+    const importResp = await fetch(`${baseUrl}/api/projects/${PROJECT_ID}/figma/import`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path: stagedPath, notes: 'by-reference import' }),
+    });
+    expect(importResp.status).toBe(200);
+    const body = await importResp.json();
+    expect(body.inventory.decoded).toBe(true);
+    expect(body.files).toContain('figma/tree.json');
+    expect(body.suggestedPrompt).toMatch(/by-reference import/);
+
+    // The raw reference .fig no longer lingers as a project file.
+    expect(fs.existsSync(path.join(dataDir, 'projects', PROJECT_ID, stagedPath))).toBe(false);
+    // But the chunk-staging dir was purged on complete.
+    expect(fs.existsSync(path.join(dataDir, 'upload-staging/chunktest-figbyref'))).toBe(false);
+  });
+
+  it('rejects a traversal path (by-reference mode) with 400', async () => {
+    const resp = await fetch(`${baseUrl}/api/projects/${PROJECT_ID}/figma/import`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path: '../escape.fig' }),
+    });
+    expect(resp.status).toBe(400);
+    const body = await resp.json();
+    expect(body.error?.code ?? body.error).toMatch(/FIGMA_IMPORT_FAILED|BAD_REQUEST|invalid path/);
+  });
 });
