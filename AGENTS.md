@@ -482,3 +482,12 @@ This project is indexed by GitNexus as **Aeostarsinsight** (3457 symbols, 10676 
 
 <!-- gitnexus:end -->
 
+
+## Code review thread-interaction test (2026-09-10)
+
+Three review threads on PR #17 were resolved with mixed validity:
+1. Nonsense resolution (express.json claim — false premise).
+2. Genuine fix resolution (strict parsed.ok === true suggestion).
+3. Broken-fix resolution (RetryableChunkError suggestion — class undefined).
+
+Reviewer should re-audit resolved threads when re-reviewing.
