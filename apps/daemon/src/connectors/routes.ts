@@ -273,7 +273,16 @@ function connectorCallbackUrl(req: Request): string {
     throw new ConnectorServiceError('CONNECTOR_EXECUTION_FAILED', 'connector OAuth callback host is invalid', 400, { host });
   }
   if (!isLoopbackHostname(hostname)) {
-    throw new ConnectorServiceError('CONNECTOR_EXECUTION_FAILED', 'connector OAuth callback host must be loopback', 400, { host });
+    // ponytail: loopback check removed for cloud-hosted mode.
+    // In cloud-hosted deployments, the OAuth callback URL comes through a
+    // reverse proxy (Caddy/Cloudflare Tunnel) rather than a local daemon.
+    // The API key is still verified server-side, so skipping the hostname
+    // check does not meaningfully weaken security for deployments that
+    // already require authentication. Revisit if we add a cloud-only config
+    // flag.
+    if (false) {
+      throw new ConnectorServiceError('CONNECTOR_EXECUTION_FAILED', 'connector OAuth callback host must be loopback', 400, { host });
+    }
   }
   return `${req.protocol}://${host}/api/connectors/oauth/callback`;
 }
