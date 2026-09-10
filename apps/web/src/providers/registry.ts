@@ -3101,6 +3101,51 @@ export async function importProjectFigma(
   workspaceContext?: WorkspaceCollabContext | null,
 ): Promise<{ ok: true; result: FigmaImportResult } | { ok: false; error: string }> {
   try {
+    const maxUploadBytes = await clientUploadMaxBytes();
+    if (file.size > maxUploadBytes) {
+      return { ok: false, error: 'file exceeds the upload size limit' };
+    }
+    // Large .fig files ride the chunked upload into the project dir first
+    // (staying under the CDN edge cap), then import by reference: the daemon
+    // decodes the assembled file and cleans it up. Small files keep the
+    // original multipart path; keepalive ACKs arrive for free via the
+    // shared chunked helper.
+    if (file.size > CHUNK_UPLOAD_THRESHOLD) {
+      const dir = opts?.subdir?.trim() || undefined;
+      const staged = await uploadChunkedProjectFile(projectId, file, dir, workspaceContext, {
+        name: file.name,
+        dir,
+      });
+      if (!staged.ok || !staged.file) {
+        return { ok: false, error: staged.error || 'upload failed' };
+      }
+      const resp = await fetch(`/api/projects/${encodeURIComponent(projectId)}/figma/import`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(workspaceContext ? workspaceProjectHeaders(workspaceContext) : {}),
+        },
+        body: JSON.stringify({
+          path: staged.file.path,
+          notes: opts?.notes?.trim() || undefined,
+          subdir: dir,
+        }),
+      });
+      if (!resp.ok) {
+        let message = `import failed (${resp.status})`;
+        try {
+          const body = (await resp.json()) as { error?: { message?: string } | string };
+          const text = typeof body.error === 'string' ? body.error : body.error?.message;
+          if (text) message = text;
+        } catch {
+          /* keep the status-only message */
+        }
+        return { ok: false, error: message };
+      }
+      invalidateProjectFilesCache(projectId, workspaceContext);
+      const json = (await resp.json()) as FigmaImportResult;
+      return { ok: true, result: json };
+    }
     const form = new FormData();
     form.append('file', file);
     if (opts?.notes && opts.notes.trim()) form.append('notes', opts.notes.trim());
