@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [Fixed] Long speaker notes are now scrollable inside the presenter view instead of being clipped when notes push the layout past the viewport. (#6271)
 - [Fixed] Saving an edited design artifact no longer fails with HTTP 413 (Payload Too Large) when its rendered HTML exceeds 4 MB — artifact save/lint now accept up to 64 MB bodies.
 - [Fixed] Agent/ACP runs no longer fail with HTTP 413 (Payload Too Large) — the global JSON body cap is raised from 4 MB to 128 MB.
+- [Changed] Retired the official Nix flake, Home Manager/NixOS modules, and lockfile-coupled Nix CI maintenance. OpenDesign still discovers agent CLIs installed through Nix profiles on NixOS and nix-darwin hosts.
 
 ## [0.9.0] - 2026-05-29
 
