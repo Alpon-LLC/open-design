@@ -3251,8 +3251,22 @@ export interface UploadProjectFilesResult {
   error?: string;
 }
 
-// PUTs one 5 MiB slice; `retryable` distinguishes transport/5xx failures
-// (worth a resume pass) from 4xx rejections (not worth retrying).
+// PUTs one 5 MiB slice. Slow uploads may stream keepalive ACK bytes from the
+// daemon (edge/CDN idle-timeout saver), pinning a 200 with the real verdict
+// as the final JSON payload — whitespace around it stays JSON.parse-able.
+// `retryable` distinguishes transport/5xx failures (worth a resume pass)
+// from 4xx rejections (not worth retrying).
+function parseChunkAck(body: string): boolean {
+  try {
+    const parsed = JSON.parse(body) as { ok?: boolean };
+    return parsed?.ok !== false;
+  } catch {
+    // Unparseable body on a 200 (e.g. proxy-induced HTML) — keep the success
+    // path; daemon-side validation still guards correctness.
+    return true;
+  }
+}
+
 async function putChunkWithRetry(
   url: string,
   blob: Blob,
@@ -3261,7 +3275,9 @@ async function putChunkWithRetry(
   for (let attempt = 1; attempt <= CHUNK_UPLOAD_MAX_ATTEMPTS; attempt += 1) {
     try {
       const resp = await fetch(url, { method: 'PUT', headers, body: blob });
-      if (resp.ok) return 'ok';
+      if (resp.ok) {
+        return (await resp.text().then(parseChunkAck)) ? 'ok' : 'reject';
+      }
       if (resp.status >= 400 && resp.status < 500) return 'reject';
     } catch {
       // network error — fall through to backoff
