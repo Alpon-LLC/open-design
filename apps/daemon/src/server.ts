@@ -2903,9 +2903,9 @@ export async function startServer({
   app.use('/api/artifacts/lint', express.json({ limit: '128mb' }));
   // Chunked project upload: large attachment files arrive as many small
   // octet-stream chunk PUTs so every request stays far below the edge/CDN
-  // 100MB request-body cap. The raw parser must claim this body before the
-  // global JSON parser (registered first, same per-route override pattern).
-  app.use('/api/projects/:id/upload/:uploadId/chunk/:index', express.raw({ type: '*/*', limit: '16mb' }));
+  // 100MB request-body cap. The chunk route owns its raw-stream collector
+  // (with edge-timeout keepalive ACKs), so it does NOT get the generic raw
+  // parser here; the global JSON parser never touches octet-stream bodies.
   // Global JSON body cap. The agent/ACP harness round-trips large context,
   // tool, and chat payloads that run well past a conservative 4mb, so the
   // default is raised to 128mb (matching /api/library/ingest) to avoid 413s on
