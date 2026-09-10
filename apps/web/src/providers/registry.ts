@@ -77,6 +77,7 @@ import type {
   PromptTemplateDetail,
   PromptTemplateSummary,
   ProjectFile,
+  ProjectFileKind,
   ProjectFolder,
   RenameProjectFileResponse,
   SkillDetail,
@@ -3041,6 +3042,37 @@ export async function uploadProjectFile(
   workspaceContext?: WorkspaceCollabContext | null,
 ): Promise<ProjectFile | null> {
   try {
+    const maxUploadBytes = await clientUploadMaxBytes();
+    if (file.size > maxUploadBytes) {
+      return null;
+    }
+    // Brandkit passes a full stored path (e.g. "logos/logo.png"); large files
+    // ride the chunked path with the intended name/dir so the file still
+    // lands at <dir>/<name>. The server-returned path is authoritative —
+    // brand.json references trust it, not a client-computed one.
+    if (file.size > CHUNK_UPLOAD_THRESHOLD) {
+      let dir: string | undefined;
+      let name: string;
+      if (desiredName) {
+        const slashIdx = desiredName.lastIndexOf('/');
+        dir = slashIdx > 0 ? desiredName.slice(0, slashIdx) : undefined;
+        name = slashIdx >= 0 ? desiredName.slice(slashIdx + 1) || file.name : desiredName;
+      } else {
+        name = file.name;
+      }
+      const result = await uploadChunkedProjectFile(projectId, file, dir, workspaceContext, { name, dir });
+      if (!result.ok || !result.file) return null;
+      invalidateProjectFilesCache(projectId, workspaceContext);
+      const saved = result.file;
+      return {
+        name: saved.name,
+        path: saved.path,
+        size: saved.size ?? file.size,
+        mtime: saved.mtime ?? Math.floor(Date.now() / 1000),
+        kind: looksLikeImage(saved.path) ? 'image' : 'file' as ProjectFileKind,
+        mime: saved.mime ?? '',
+      };
+    }
     const form = new FormData();
     form.append('file', file);
     if (desiredName) form.append('name', desiredName);
@@ -3121,6 +3153,8 @@ interface UploadedProjectFilePayload {
   path: string;
   size?: number;
   originalName?: string;
+  mtime?: number;
+  mime?: string;
 }
 
 function chunkedUploadId(): string {
@@ -3204,12 +3238,22 @@ interface ChunkedUploadOutcome {
 // with bounded concurrency and per-chunk retries, resume once via the status
 // endpoint if any chunk exhausts its retries, then assemble server-side.
 // Aborts (DELETEs) staging on any failure so nothing lingers.
+interface ChunkedUploadOptions {
+  /** Stored-file name override (brandkit passes a full desired name). */
+  name?: string;
+  /** Target subfolder override; empty string means project root. */
+  dir?: string;
+}
+
 async function uploadChunkedProjectFile(
   projectId: string,
   file: File,
   dir?: string,
   workspaceContext?: WorkspaceCollabContext | null,
+  opts?: ChunkedUploadOptions,
 ): Promise<ChunkedUploadOutcome> {
+  const storedName = opts?.name ?? file.name;
+  const storedDir = opts?.dir ?? dir;
   const base = `/api/projects/${encodeURIComponent(projectId)}/upload/${chunkedUploadId()}`;
   const authHeaders: Record<string, string> = workspaceContext
     ? { ...(workspaceProjectHeaders(workspaceContext) as Record<string, string>) }
@@ -3219,9 +3263,9 @@ async function uploadChunkedProjectFile(
     ...authHeaders,
     'content-type': 'application/octet-stream',
     'x-total-chunks': String(totalChunks),
-    'x-file-name': encodeURIComponent(file.name),
+    'x-file-name': encodeURIComponent(storedName),
   };
-  if (dir) chunkHeaders['x-dir'] = encodeURIComponent(dir);
+  if (storedDir) chunkHeaders['x-dir'] = encodeURIComponent(storedDir);
 
   const indexes = Array.from({ length: totalChunks }, (_, i) => i);
   const cursor = { next: 0 };
@@ -3269,7 +3313,7 @@ async function uploadChunkedProjectFile(
     const complete = await fetch(`${base}/complete`, {
       method: 'POST',
       headers: { ...authHeaders, 'content-type': 'application/json' },
-      body: JSON.stringify({ name: file.name, dir: dir || undefined, totalChunks }),
+      body: JSON.stringify({ name: storedName, dir: storedDir || undefined, totalChunks }),
     });
     if (!complete.ok) {
       const payload = (await complete.json().catch(() => null)) as

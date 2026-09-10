@@ -2565,7 +2565,12 @@ const upload = multer({
       );
     },
   }),
-  limits: { fileSize: 20 * 1024 * 1024 },
+  // Canonical cap (OD_MAX_UPLOAD_MB env → else PROJECT_UPLOAD_MAX_BYTES, same
+  // resolver the chunked routes and GET /api/config use) so the direct
+  // single-file upload is never a lower-bounder than the enforced ceiling.
+  // A direct POST >100MB may still 413 at the CDN edge before reaching here;
+  // browser clients chunk above the 10MB threshold instead.
+  limits: { fileSize: resolveUploadMaxBytes() },
 });
 
 const importUpload = multer({

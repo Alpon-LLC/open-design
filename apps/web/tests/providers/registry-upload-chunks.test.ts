@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { uploadProjectFiles } from '../../src/providers/registry';
+import { uploadProjectFile, uploadProjectFiles } from '../../src/providers/registry';
 
 // ---------------------------------------------------------------------------
 // Chat-composer attachment upload split: files ≤10 MiB keep the original
@@ -255,3 +255,83 @@ describe('uploadProjectFiles chunked path', () => {
     expect(result.uploaded.map((a) => a.name)).toEqual(['a.txt', 'big.bin', 'c.txt']);
   });
 });
+
+describe('uploadProjectFile (single-file brandkit path)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('routes a >threshold single file through chunked with the desired name/dir override', async () => {
+    const file = new File([new Uint8Array(CHUNK_UPLOAD_SIZE * 2 + 1)], 'raw-logo.png', { type: 'image/png' });
+    const router = makeFetchRouter(async (url, init) => {
+      if (init.method === 'GET') return new Response(JSON.stringify({ maxUploadBytes: 300 * 1024 * 1024 }), { status: 200 });
+      const headers = init.headers as Record<string, string> | undefined;
+      if (init.method === 'PUT') {
+        expect(decodeURIComponent(headers?.['x-dir'] ?? '')).toBe('logos');
+        expect(decodeURIComponent(headers?.['x-file-name'] ?? '')).toBe('logo.png');
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      if (url.endsWith('/complete')) {
+        return new Response(JSON.stringify({
+          files: [{
+            name: 'logos/logo.png',
+            path: 'logos/logo.png',
+            size: CHUNK_UPLOAD_SIZE * 2,
+            mtime: 77,
+            originalName: 'logo.png',
+          }],
+        }), { status: 200 });
+      }
+      return new Response(null, { status: 500 });
+    });
+    router.stub();
+
+    // The daemon stamps meta from the first chunk's headers, so the stored
+    // name/dir must ride x-file-name/x-dir exactly as desiredName implies.
+    const res = await uploadProjectFile(
+      'project-2',
+      file,
+      'logos/logo.png',
+    );
+
+    expect(res).toMatchObject({
+      name: 'logos/logo.png',
+      path: 'logos/logo.png',
+      size: CHUNK_UPLOAD_SIZE * 2,
+      mtime: 77,
+    });
+    // Server-returned path is authoritative — no direct single-file POST.
+    expect(router.calls.some((c) => c.url.endsWith('/files'))).toBe(false);
+  });
+
+  it('keeps a small single file on the direct multipart path', async () => {
+    const file = new File(['tiny'], 'tiny.png', { type: 'image/png' });
+    const router = makeFetchRouter(async (url, init) => {
+      if (init.method === 'GET') return new Response(JSON.stringify({ maxUploadBytes: 300 * 1024 * 1024 }), { status: 200 });
+      if (url === '/api/projects/project-2/files' && init.method === 'POST') {
+        return new Response(JSON.stringify({
+          file: { name: 'logos/tiny.png', path: 'logos/tiny.png', size: 4, mtime: 99, kind: 'image', mime: 'image/png' },
+        }), { status: 200 });
+      }
+      return new Response(null, { status: 500 });
+    });
+    router.stub();
+
+    const res = await uploadProjectFile('project-2', file, 'logos/tiny.png');
+    // Direct /files response includes server-computed kind/mime.
+    expect(res).toMatchObject({ path: 'logos/tiny.png', kind: 'image', mime: 'image/png' });
+    expect(router.calls.every((c) => !c.url.includes('/upload/'))).toBe(true);
+  });
+
+  it('rejects an over-cap file locally with no request', async () => {
+    const file = new File([new Uint8Array(CHUNK_SIZE_TEST_CAP)], 'huge.bin');
+    const router = makeFetchRouter(() => new Response(null, { status: 500 }));
+    router.stub();
+
+    expect(await uploadProjectFile('project-2', file, 'logos/huge.bin')).toBeNull();
+    expect(router.calls).toEqual([]);
+  });
+});
+
+const CHUNK_SIZE_TEST_CAP = 300 * 1024 * 1024 + 1;
