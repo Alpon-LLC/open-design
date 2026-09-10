@@ -245,6 +245,13 @@ export interface ProjectFolderResponse {
 
 export interface UploadProjectFilesResponse extends ProjectFilesResponse {}
 
+// Single source of truth for the project-attachment upload ceiling (multipart
+// and chunked paths alike). Default 300MB; the daemon additionally honors an
+// OD_MAX_UPLOAD_MB runtime override read at startServer. Consumed by both the
+// daemon chunk-upload routes (server-side enforcement) and the web composer
+// (CHUNK_UPLOAD file max) so the client and server caps cannot drift.
+export const PROJECT_UPLOAD_MAX_BYTES = 300 * 1024 * 1024;
+
 export interface DeleteProjectFileResponse extends OkResponse {}
 
 export interface DeleteProjectFolderResponse extends OkResponse {}

@@ -202,7 +202,6 @@ describe('uploadProjectFiles chunked path', () => {
       if (init.method === 'GET') return new Response(JSON.stringify({ received: [], totalChunks: 1 }), { status: 200 });
       if (init.method === 'DELETE') return new Response(JSON.stringify({ ok: true }), { status: 200 });
       if (url === '/api/projects/project-1/upload' && init.method === 'POST') {
-        const form = init.body as FormData;
         return new Response(JSON.stringify({
           files: [
             { name: 'a.txt', path: 'a.txt', size: 1, originalName: 'a.txt' },
@@ -222,5 +221,37 @@ describe('uploadProjectFiles chunked path', () => {
     const multipart = router.calls.find((c) => c.url === '/api/projects/project-1/upload')!;
     expect(JSON.stringify((multipart.init.body as FormData).getAll('files').map((f) => (f as File).name)))
       .toBe(JSON.stringify(['a.txt', 'b.txt']));
+  });
+
+  it('keeps staged attachments in the original selection order across paths', async () => {
+    const large = new File([new Uint8Array(CHUNK_UPLOAD_SIZE * 3)], 'big.bin', { type: 'application/octet-stream' });
+    const smallA = new File(['a'], 'a.txt');
+    const smallC = new File(['c'], 'c.txt');
+    const router = makeFetchRouter(async (url, init) => {
+      if (init.method === 'PUT') return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      if (url.endsWith('/complete')) {
+        return new Response(JSON.stringify({
+          files: [{ name: 'big.bin', path: 'big.bin', size: CHUNK_UPLOAD_SIZE * 3, originalName: 'big.bin' }],
+        }), { status: 200 });
+      }
+      if (url === '/api/projects/project-1/upload' && init.method === 'POST') {
+        return new Response(JSON.stringify({
+          files: [
+            { name: 'a.txt', path: 'a.txt', size: 1, originalName: 'a.txt' },
+            { name: 'c.txt', path: 'c.txt', size: 1, originalName: 'c.txt' },
+          ],
+        }), { status: 200 });
+      }
+      return new Response(null, { status: 500 });
+    });
+    router.stub();
+
+    // Selection order [small, large, small]: the chunked file is uploaded
+    // first even though the small files wrap it in the selection, but staged
+    // attachment order must come back as the user picked them.
+    const result = await uploadProjectFiles('project-1', [smallA, large, smallC]);
+
+    expect(result.failed).toEqual([]);
+    expect(result.uploaded.map((a) => a.name)).toEqual(['a.txt', 'big.bin', 'c.txt']);
   });
 });

@@ -214,3 +214,60 @@ describe('chunked project upload', () => {
     await expect(readdir(stageDir)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
+
+// Server-side size cap: OD_MAX_UPLOAD_MB (runtime knob, read per startServer)
+// enforces the assembled-upload ceiling server-side, tracked via cumulative
+// per-chunk byte counts in meta.json — independent of the web client.
+describe('chunked project upload size cap (OD_MAX_UPLOAD_MB=1)', () => {
+  let server: http.Server;
+  let capBase: string;
+
+  beforeAll(async () => {
+    process.env.OD_MAX_UPLOAD_MB = '1';
+    const started = (await startServer({ port: 0, returnServer: true })) as {
+      url: string;
+      server: http.Server;
+    };
+    server = started.server;
+    capBase = `${started.url}/api/projects/proj-chunk-upload-test/upload`;
+  });
+
+  afterAll(() => new Promise<void>((resolve) => {
+    delete process.env.OD_MAX_UPLOAD_MB;
+    (server as any).closeAllConnections?.();
+    server.close(() => resolve());
+  }));
+
+  it('rejects a chunk PUT that would overflow the cap and writes nothing', async () => {
+    const res = await fetch(`${capBase}/chunktest-cap-1/chunk/0`, {
+      method: 'PUT',
+      headers: {
+        'content-type': 'application/octet-stream',
+        'x-total-chunks': '3',
+        'x-file-name': encodeURIComponent('oversize.bin'),
+      },
+      body: Buffer.alloc(2 * 1024 * 1024),
+    });
+    expect(res.status).toBe(413);
+    const stageDir = path.join(process.env.OD_DATA_DIR!, 'upload-staging', 'chunktest-cap-1');
+    // Nothing lands before the cap clears — no chunk, no meta, empty staging dir.
+    expect(await readdir(stageDir)).toEqual([]);
+  });
+
+  it('stages chunks exactly at the cap and rejects via cumulative meta tracking', async () => {
+    const half = 512 * 1024;
+    const put = (index: number, body: Buffer) => fetch(`${capBase}/chunktest-cap-2/chunk/${index}`, {
+      method: 'PUT',
+      headers: {
+        'content-type': 'application/octet-stream',
+        'x-total-chunks': '3',
+        'x-file-name': encodeURIComponent('cap.bin'),
+      },
+      body,
+    });
+    expect((await put(0, Buffer.alloc(half))).status).toBe(200);
+    expect((await put(1, Buffer.alloc(half))).status).toBe(200);
+    const over = await put(2, Buffer.alloc(1));
+    expect(over.status).toBe(413);
+  });
+});

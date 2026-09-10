@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { Express } from 'express';
+import { PROJECT_UPLOAD_MAX_BYTES } from '@open-design/contracts';
 import {
   createEnforceWorkspaceProjectMutation,
 } from './index.js';
@@ -18,6 +19,12 @@ import type { RouteDeps } from '../../server-context.js';
  * directory on complete. Same response shape as POST /api/projects/:id/upload
  * so the composer treats both paths identically.
  *
+ * Assembly appends chunk files to a staging file one at a time and then moves
+ * it into the project dir, so peak heap stays around one chunk regardless of
+ * the assembled file size. The total upload size is enforced server-side
+ * against PROJECT_UPLOAD_MAX_BYTES (or the OD_MAX_UPLOAD_MB override) via
+ * cumulative per-chunk byte tracking in meta.json.
+ *
  * Staging lives under RUNTIME_DATA_DIR/upload-staging (daemon data-root
  * contract: derived from the resolved daemon data root, never cwd-relative).
  */
@@ -35,6 +42,15 @@ function headerString(value: unknown): string {
     : Array.isArray(value) && typeof value[0] === 'string' ? value[0] : '';
 }
 
+/**
+ * Server-side upload cap: OD_MAX_UPLOAD_MB (positive integer MB) at
+ * startServer time, else the shared contracts default.
+ */
+function resolveUploadMaxBytes(): number {
+  const mb = Number.parseInt(process.env.OD_MAX_UPLOAD_MB ?? '', 10);
+  return Number.isInteger(mb) && mb > 0 ? mb * 1024 * 1024 : PROJECT_UPLOAD_MAX_BYTES;
+}
+
 export interface RegisterProjectChunkUploadRoutesDeps
   extends RouteDeps<'db' | 'http' | 'node' | 'paths' | 'projectStore' | 'projectFiles'> {
   authorizeProjectRequest?: AuthorizeProjectRequest;
@@ -45,6 +61,8 @@ interface UploadMeta {
   totalChunks: number;
   name: string;
   dir: string;
+  /** Cumulative byte count per received chunk index (server-side cap tracking). */
+  bytesByChunk?: Record<string, number>;
 }
 
 let lastSweepAt = 0;
@@ -67,10 +85,21 @@ async function readUploadMeta(
       || typeof parsed?.name !== 'string'
       || typeof parsed?.dir !== 'string'
     ) return null;
+    if (parsed.bytesByChunk !== undefined) {
+      const sizes = parsed.bytesByChunk;
+      if (typeof sizes !== 'object' || sizes === null || Array.isArray(sizes)) return null;
+      for (const value of Object.values(sizes)) {
+        if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) return null;
+      }
+    }
     return parsed;
   } catch {
     return null;
   }
+}
+
+function metaTotalBytes(meta: UploadMeta): number {
+  return Object.values(meta.bytesByChunk ?? {}).reduce((sum, n) => sum + (n || 0), 0);
 }
 
 async function writeUploadMeta(fs: any, stageDir: string, meta: UploadMeta) {
@@ -119,8 +148,9 @@ export function registerProjectChunkUploadRoutes(
   const { fs } = ctx.node;
   const { PROJECTS_DIR, RUNTIME_DATA_DIR } = ctx.paths;
   const stagingRoot = path.join(RUNTIME_DATA_DIR, 'upload-staging');
+  const maxUploadBytes = resolveUploadMaxBytes();
   const { getProject, getWorkspaceProject, getWorkspaceProjectByProjectId } = ctx.projectStore;
-  const { writeProjectFile, readProjectFile } = ctx.projectFiles;
+  const { readProjectFile } = ctx.projectFiles;
   const authorizeProjectRequest =
     ctx.authorizeProjectRequest ??
     createAuthorizeProjectRequest({
@@ -179,24 +209,31 @@ export function registerProjectChunkUploadRoutes(
         if (!await gateWrite(req, res, req.params.id)) return;
         const stageDir = stagingDirFor(stagingRoot, uploadId);
         await fs.promises.mkdir(stageDir, { recursive: true });
-        const meta = await readUploadMeta(fs, stageDir);
-        if (meta) {
-          if (meta.totalChunks !== totalChunks) {
-            return sendApiError(res, 400, 'BAD_REQUEST', 'total chunks does not match previous upload');
-          }
-        } else {
+        let meta = await readUploadMeta(fs, stageDir);
+        // Byte budget: cumulative per-chunk sizes are tracked in meta.json so a
+        // non-web client cannot stage (and later assemble) an oversized blob.
+        if (meta && meta.totalChunks !== totalChunks) {
+          return sendApiError(res, 400, 'BAD_REQUEST', 'total chunks does not match previous upload');
+        }
+        if (!meta) {
           const decodedName = decodeURIComponent(headerString(req.headers['x-file-name']));
           if (!decodedName) return sendApiError(res, 400, 'BAD_REQUEST', 'x-file-name header required');
           const dirRaw = headerString(req.headers['x-dir']);
           const dir = dirRaw ? decodeURIComponent(dirRaw) : '';
-          // First chunk stamps the upload meta; later chunk PUTs must agree.
-          await writeUploadMeta(fs, stageDir, {
+          meta = {
             totalChunks,
             name: sanitizeName(decodedName),
             dir,
-          });
+            bytesByChunk: {},
+          };
+        }
+        const bytesByChunk = { ...(meta.bytesByChunk ?? {}), [String(chunkIndex)]: body.length };
+        const totalBytes = Object.values(bytesByChunk).reduce((sum, n) => sum + n, 0);
+        if (totalBytes > maxUploadBytes) {
+          return sendApiError(res, 413, 'FILE_TOO_LARGE', 'assembled upload exceeds the maximum size');
         }
         await fs.promises.writeFile(path.join(stageDir, String(chunkIndex)), body);
+        await writeUploadMeta(fs, stageDir, { ...meta, bytesByChunk });
         sweepStaleStagingDirs(fs, stagingRoot).catch(() => {});
         res.json({ ok: true });
       } catch {
@@ -232,20 +269,38 @@ export function registerProjectChunkUploadRoutes(
           || (received.length > 0 && received[received.length - 1] !== meta.totalChunks - 1)) {
           return sendApiError(res, 400, 'INCOMPLETE_UPLOAD', 'not all chunks received');
         }
-        const chunks = await Promise.all(
-          received.map((i) => fs.promises.readFile(path.join(stageDir, String(i)))),
-        );
-        const buffer = Buffer.concat(chunks);
-        const { relDir } = await ensureProjectSubdir(PROJECTS_DIR, req.params.id, meta.dir, project.metadata);
-        const finalName = relDir ? `${relDir}/${meta.name}` : meta.name;
-        const saved = await writeProjectFile(
+        const totalBytes = metaTotalBytes(meta);
+        if (totalBytes > maxUploadBytes) {
+          // Cannot ever complete within the cap — purge staging so the
+          // oversized upload stops holding disk space.
+          await fs.promises.rm(stageDir, { recursive: true, force: true });
+          return sendApiError(res, 413, 'FILE_TOO_LARGE', 'assembled upload exceeds the maximum size');
+        }
+        // Streamed assembly: append each chunk file to one staging file in
+        // index order so peak heap stays around a single chunk, then move the
+        // assembled file into the project dir. Matches the direct /upload
+        // route, which also lands files flat via its multer destination.
+        const { absDir, relDir } = await ensureProjectSubdir(
           PROJECTS_DIR,
-          project.id,
-          finalName,
-          buffer,
-          {},
+          req.params.id,
+          meta.dir,
           project.metadata,
         );
+        const assembled = path.join(stageDir, 'assembled');
+        await fs.promises.writeFile(assembled, Buffer.alloc(0));
+        for (const i of received) {
+          const chunk = await fs.promises.readFile(path.join(stageDir, String(i)));
+          await fs.promises.appendFile(assembled, chunk);
+        }
+        const target = path.join(absDir, meta.name);
+        try {
+          await fs.promises.rename(assembled, target);
+        } catch (err: any) {
+          if (err?.code !== 'EXDEV') throw err;
+          // Imported projects can live on a different filesystem than staging.
+          await fs.promises.copyFile(assembled, target);
+        }
+        const finalName = relDir ? `${relDir}/${meta.name}` : meta.name;
         if (/\.html?$/i.test(finalName)) {
           try {
             const savedFile = await readProjectFile(
@@ -266,13 +321,14 @@ export function registerProjectChunkUploadRoutes(
             // Same best-effort posture as the direct /upload route.
           }
         }
+        const st = await fs.promises.stat(target);
         await fs.promises.rm(stageDir, { recursive: true, force: true });
         /** @type {import('@open-design/contracts').UploadProjectFilesResponse} */
         const out = {
-          name: saved.name,
-          path: saved.path,
-          size: saved.size,
-          mtime: saved.mtime,
+          name: finalName,
+          path: finalName,
+          size: st.size,
+          mtime: st.mtimeMs,
           originalName: meta.name,
         };
         res.json({ files: [out] });
