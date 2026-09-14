@@ -151,6 +151,10 @@ describe('runtime defs opting into the guard', () => {
     }
   });
 
+  it('resumes Hermes native ACP sessions across OpenDesign turns', () => {
+    expect(hermesAgentDef.resumesSessionViaAcpLoad).toBe(true);
+  });
+
   it('leaves reasonix on its map env format, which is a separate axis', () => {
     // Guards against a future edit conflating "shape the env" with "withhold
     // the server" — reasonix needs the first and must not get the second.
