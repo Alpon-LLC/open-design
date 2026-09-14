@@ -20,6 +20,7 @@ import {
   deploymentUrlCandidates,
   deployToCloudflarePages,
   deployConfigPath,
+  deployToVercel,
   extractCssReferences,
   extractHtmlReferences,
   extractInlineCssReferences,
@@ -54,6 +55,47 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   closeDatabase();
+});
+
+describe('Vercel deployment uploads', () => {
+  it('uploads files by SHA before creating a deployment with references', async () => {
+    const requests: Array<{ url: string; headers: Headers; body: string | Uint8Array | null }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const headers = new Headers(init?.headers);
+      const body = init?.body instanceof Uint8Array ? init.body : typeof init?.body === 'string' ? init.body : null;
+      requests.push({ url, headers, body });
+      if (url.includes('/v2/files')) return new Response(null, { status: 200 });
+      if (url.includes('/v13/deployments') && init?.method === 'POST') return Response.json({ id: '', url: 'example.vercel.app' });
+      if (url.includes('example.vercel.app')) return new Response('ok', { status: 200 });
+      throw new Error(`unexpected request: ${url}`);
+    }));
+
+    await deployToVercel({
+      config: { token: 'test-token' },
+      projectId: 'project-1',
+      files: [
+        { file: 'index.html', data: '<h1>Hello</h1>' },
+        { file: 'assets/app.css', data: Buffer.from('body{}') },
+      ],
+    });
+
+    expect(requests.slice(0, 2).map((request) => request.url)).toEqual([
+      'https://api.vercel.com/v2/files',
+      'https://api.vercel.com/v2/files',
+    ]);
+    expect(requests[0]?.headers.get('content-length')).toBe('14');
+    expect(requests[0]?.headers.get('x-vercel-digest')).toMatch(/^[a-f0-9]{40}$/);
+    expect(requests[0]?.body).toEqual(Buffer.from('<h1>Hello</h1>'));
+
+    const create = requests[2];
+    const payload = JSON.parse(String(create?.body));
+    expect(payload.files).toEqual([
+      { file: 'index.html', sha: requests[0]?.headers.get('x-vercel-digest'), size: 14 },
+      { file: 'assets/app.css', sha: requests[1]?.headers.get('x-vercel-digest'), size: 6 },
+    ]);
+    expect(JSON.stringify(payload)).not.toContain('data');
+  });
 });
 
 describe('deploy config', () => {

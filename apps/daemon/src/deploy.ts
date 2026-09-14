@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { hash as blake3Hash } from 'blake3-wasm';
 import { listFiles, readProjectFile, validateProjectPath } from './projects.js';
 import { findRealTagOffset, HTML_TAG_PATTERNS } from '@open-design/contracts/runtime/html-injection-points';
@@ -391,6 +391,27 @@ export async function deployToVercel({ config, files, projectId }: { config: Dep
     throw new DeployError('Vercel token is required.', 400, undefined, 'VERCEL_TOKEN_REQUIRED');
   }
 
+  const uploadedFiles = [];
+  for (const file of files) {
+    const data = Buffer.from(file.data);
+    const sha = createHash('sha1').update(data).digest('hex');
+    const uploadResp = await fetch(`${VERCEL_API}/v2/files${vercelTeamQuery(config)}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.token}`,
+        'Content-Length': String(data.length),
+        'Content-Type': 'application/octet-stream',
+        'x-vercel-digest': sha,
+      },
+      body: data,
+    });
+    if (!uploadResp.ok) {
+      const error = await readVercelJson(uploadResp);
+      throw vercelError(error, uploadResp.status);
+    }
+    uploadedFiles.push({ file: file.file, sha, size: data.length });
+  }
+
   const createResp = await fetch(`${VERCEL_API}/v13/deployments${vercelTeamQuery(config)}`, {
     method: 'POST',
     headers: {
@@ -399,11 +420,7 @@ export async function deployToVercel({ config, files, projectId }: { config: Dep
     },
     body: JSON.stringify({
       name: safeVercelProjectName(`od-${projectId}`),
-      files: files.map((f) => ({
-        file: f.file,
-        data: Buffer.from(f.data).toString('base64'),
-        encoding: 'base64',
-      })),
+      files: uploadedFiles,
       projectSettings: { framework: null },
     }),
   });
