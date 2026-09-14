@@ -713,6 +713,9 @@ describe('deploy provider routes', () => {
               : String(input);
         const method = init?.method || (input instanceof Request ? input.method : 'GET');
         if (url.startsWith(baseUrl)) return realFetch(input, init);
+        if (url.includes('/v2/files') && method === 'POST') {
+          return new Response(null, { status: 200 });
+        }
         if (url.includes('/v13/deployments') && method === 'POST') {
           const body = JSON.parse(String(init?.body ?? '{}'));
           expect(body).not.toHaveProperty('cloudflarePages');
@@ -761,8 +764,21 @@ describe('deploy provider routes', () => {
             },
           }),
         });
-        expect(deployResp.status).toBe(200);
-        expect(await deployResp.json()).toMatchObject({
+        expect(deployResp.status).toBe(202);
+        const queued = await deployResp.json();
+        expect(queued).toMatchObject({
+          providerId: VERCEL_PROVIDER_ID,
+          status: 'deploying',
+        });
+
+        let completed: any = queued;
+        for (let attempt = 0; attempt < 40 && completed.status === 'deploying'; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          const deploymentsResp = await fetch(`${baseUrl}/api/projects/${projectId}/deployments`);
+          const payload = await deploymentsResp.json();
+          completed = payload.deployments.find((item: { id: string }) => item.id === queued.id);
+        }
+        expect(completed).toMatchObject({
           providerId: VERCEL_PROVIDER_ID,
           url: 'https://vercel.example',
           status: 'ready',

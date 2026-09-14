@@ -1912,7 +1912,17 @@ export async function deployProjectFile(
     const code = rawCode && !GENERIC_DEPLOY_ENVELOPE_CODES.has(rawCode) ? rawCode : `HTTP_${resp.status}`;
     throw Object.assign(new Error(message), { code });
   }
-  return (await resp.json()) as WebDeployProjectFileResponse;
+  const deployment = (await resp.json()) as WebDeployProjectFileResponse;
+  if (resp.status !== 202) return deployment;
+  for (let attempt = 0; attempt < 180; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    const deployments = await fetchProjectDeployments(projectId, workspaceContext);
+    const current = deployments.find((item) => item.id === deployment.id);
+    if (current && current.status !== 'deploying') return current as WebDeployProjectFileResponse;
+  }
+  throw Object.assign(new Error('Deployment is still running. Check deployments and retry.'), {
+    code: 'DEPLOYMENT_TIMEOUT',
+  });
 }
 
 function parsePublicFileManualRevokeData(
