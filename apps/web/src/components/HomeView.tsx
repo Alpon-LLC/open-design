@@ -2212,6 +2212,7 @@ export function HomeView({
           elevenLabsVoiceWarning,
           elevenLabsVoicesLoading,
           imageModels: composerImageModels,
+          defaultImageModel,
         })
       : null;
     const inputFields = mediaComposer?.fields ?? active.inputFields;
@@ -2313,6 +2314,7 @@ export function HomeView({
                 elevenLabsVoiceWarning,
                 elevenLabsVoicesLoading,
                 imageModels: composerImageModels,
+                defaultImageModel,
               },
             );
             void usePlugin(record, undefined, {
@@ -2556,6 +2558,7 @@ export function HomeView({
               elevenLabsVoiceWarning,
               elevenLabsVoicesLoading,
               imageModels: composerImageModels,
+              defaultImageModel,
             },
           );
           requestActivePlugin(record, undefined, {
