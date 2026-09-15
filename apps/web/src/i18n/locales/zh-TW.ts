@@ -5203,7 +5203,7 @@ export const zhTW: Dict = {
   'settings.mediaProviderDocsHint': '查看此供應商的設定說明。',
   'settings.mediaProviderSaveHint': '選擇「儲存」前，變更不會儲存。',
   'settings.mediaProviderDefaultImage': '設為預設圖片生成供應商',
-  'settings.mediaProviderDefaultBadge': 'Default for images',
+  'settings.mediaProviderDefaultBadge': '預設圖片生成供應商',
   'settings.mediaProviderNoKeyRequired': '無需金鑰',
   'settings.mediaProviderNoKeyHint': '該提供商使用本地登入或內建執行環境。',
   'manualEdit.sectionImage': '圖片',
