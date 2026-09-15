@@ -253,7 +253,45 @@ describe('NewProjectPanel media provider badges', () => {
     expect(screen.queryByTestId('model-picker-option-gpt-image-2')).toBeNull();
   });
 
-  it('keeps the managed Vela default when another provider is configured', () => {
+  it('uses configured Nano Banana as the default image model', () => {
+    const onCreate = vi.fn();
+    render(
+      <NewProjectPanel
+        skills={[]}
+        designSystems={[]}
+        defaultDesignSystemId={null}
+        templates={[]}
+        onDeleteTemplate={vi.fn()}
+        promptTemplates={[]}
+        onCreate={onCreate}
+        mediaProviders={{
+          nanobanana: {
+            apiKey: 'test-key',
+            apiKeyConfigured: true,
+            apiKeyTail: '5678',
+            baseUrl: '',
+          },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Media' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Image' }));
+    fireEvent.change(screen.getByTestId('new-project-name'), {
+      target: { value: 'Nano Banana image' },
+    });
+    fireEvent.click(screen.getByTestId('create-project'));
+
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          imageModel: 'gemini-3.1-flash-image-preview',
+        }),
+      }),
+    );
+  });
+
+  it('uses an available configured provider when Nano Banana is unavailable', () => {
     const onCreate = vi.fn();
     render(
       <NewProjectPanel
@@ -285,7 +323,7 @@ describe('NewProjectPanel media provider badges', () => {
     expect(onCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         metadata: expect.objectContaining({
-          imageModel: 'vela/gpt-image-2',
+          imageModel: 'doubao-seedream-3-0-t2i-250415',
         }),
       }),
     );
