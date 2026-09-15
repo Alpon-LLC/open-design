@@ -2215,15 +2215,16 @@ export function HomeView({
           defaultImageModel,
         })
       : null;
+    const effectiveInputs = mediaComposer?.inputs ?? normalized;
     const inputFields = mediaComposer?.fields ?? active.inputFields;
     const queryTemplate = mediaComposer?.queryTemplate ?? active.queryTemplate;
     const projectMetadata = active.mediaSurface
-      ? metadataForHomeMediaComposer(active.mediaSurface, normalized, promptTemplates)
-      : homeCreateProjectMetadata(active.projectKind, normalized, active.projectMetadata);
-    const inputsValid = pluginInputsAreValid(inputFields, normalized);
+      ? metadataForHomeMediaComposer(active.mediaSurface, effectiveInputs, promptTemplates)
+      : homeCreateProjectMetadata(active.projectKind, effectiveInputs, active.projectMetadata);
+    const inputsValid = pluginInputsAreValid(inputFields, effectiveInputs);
     const nextRendered =
       queryTemplate !== null
-        ? renderPluginBriefTemplate(queryTemplate, normalized)
+        ? renderPluginBriefTemplate(queryTemplate, effectiveInputs)
         : active.lastRenderedPrompt;
     if (
       !active.suppressPromptSync &&
@@ -2236,13 +2237,13 @@ export function HomeView({
     }
     setActive({
       ...active,
-      inputs: normalized,
+      inputs: effectiveInputs,
       inputFields,
       queryTemplate,
       projectMetadata,
       editableInputNames: mediaComposer?.editableFieldNames ?? active.editableInputNames,
       inputsValid,
-      result: inputsEqual(active.result?.appliedPlugin?.inputs, normalized) ? active.result : null,
+      result: inputsEqual(active.result?.appliedPlugin?.inputs, effectiveInputs) ? active.result : null,
       lastRenderedPrompt: active.suppressPromptSync ? active.lastRenderedPrompt : nextRendered,
     });
   }
