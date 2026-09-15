@@ -5196,6 +5196,7 @@ export const zhCN: Dict = {
   'settings.mediaProviderDocsHint': '查看此提供商的配置说明。',
   'settings.mediaProviderSaveHint': '选择“保存”前，更改不会保存。',
   'settings.mediaProviderDefaultImage': '设为默认图片生成服务商',
+  'settings.mediaProviderDefaultBadge': 'Default for images',
   'settings.mediaProviderNoKeyRequired': '无需密钥',
   'settings.mediaProviderNoKeyHint': '该提供商使用本地登录或内置运行时。',
   'manualEdit.sectionImage': '图片',

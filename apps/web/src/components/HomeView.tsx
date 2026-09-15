@@ -69,7 +69,7 @@ import {
   localizeSkillPrompt,
 } from '../i18n/content';
 import { fetchElevenLabsVoiceOptions } from '../providers/elevenlabs-voices';
-import { IMAGE_MODELS } from '../media/models';
+import { IMAGE_MODELS, resolveDefaultImageModel } from '../media/models';
 import {
   mergeAihubmixImageModels,
   useAIHubMixImageModels,
@@ -306,6 +306,7 @@ interface Props {
   skillsLoading?: boolean;
   connectors?: ConnectorDetail[];
   promptTemplates?: PromptTemplateSummary[];
+  mediaProviders?: Record<string, { defaultImageProvider?: boolean }>;
   // Personalized first-run starting point (spec §7). Null unless the user just
   // finished the About-you survey this session; EntryShell owns the state.
   // Accepted for API compatibility but no longer rendered — see
@@ -518,6 +519,7 @@ export function HomeView({
   skillsLoading = false,
   connectors = EMPTY_CONNECTORS,
   promptTemplates = EMPTY_PROMPT_TEMPLATES,
+  mediaProviders,
   recommendation = null,
   onRecommendationStart,
   onRecommendationDismiss,
@@ -529,6 +531,7 @@ export function HomeView({
   deepSeekV4FlashCampaignInstallationId = null,
 }: Props) {
   const { locale, t } = useI18n();
+  const defaultImageModel = resolveDefaultImageModel(mediaProviders);
   const analytics = useAnalytics();
   const workspaceContextState = useWorkspaceContext();
   const { context: workspaceContext } = workspaceContextState;
@@ -1060,6 +1063,7 @@ export function HomeView({
         elevenLabsVoiceWarning,
         elevenLabsVoicesLoading,
         imageModels: composerImageModels,
+        defaultImageModel,
       },
     );
     const nextRendered = renderPluginBriefTemplate(composer.queryTemplate, composer.inputs);
@@ -1091,7 +1095,7 @@ export function HomeView({
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [promptTemplates, elevenLabsVoices, elevenLabsVoiceWarning, elevenLabsVoicesLoading, composerImageModels]);
+  }, [promptTemplates, elevenLabsVoices, elevenLabsVoiceWarning, elevenLabsVoicesLoading, composerImageModels, defaultImageModel]);
 
   useEffect(() => {
     if (!pendingPromptFocusEndRef.current) return;

@@ -23,4 +23,15 @@ describe('Home image composer metadata', () => {
       imageModel: 'gpt-image-2',
     });
   });
+
+  it('uses the selected provider model across homepage image creation', () => {
+    const composer = buildHomeMediaComposer('image', [], {}, [], {
+      defaultImageModel: 'gemini-3.1-flash-image-preview',
+    });
+
+    expect(metadataForHomeMediaComposer('image', composer.inputs, [])).toEqual({
+      kind: 'image',
+      imageModel: 'gemini-3.1-flash-image-preview',
+    });
+  });
 });
