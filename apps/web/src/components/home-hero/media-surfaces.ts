@@ -57,11 +57,16 @@ export function buildHomeMediaComposer(
   } = {},
 ): HomeMediaComposerState {
   const imageModels = options.imageModels ?? IMAGE_MODELS;
+  const effectiveSeedInputs = surface === 'image'
+    && options.defaultImageModel
+    && seedInputs.model === DEFAULT_IMAGE_MODEL
+    ? { ...seedInputs, model: options.defaultImageModel }
+    : seedInputs;
   const inputs = normalizeHomeMediaInputs(
     surface,
     {
       ...defaultInputsForSurface(surface, promptTemplates, options.defaultImageModel),
-      ...seedInputs,
+      ...effectiveSeedInputs,
     },
     promptTemplates,
     voiceOptions,
