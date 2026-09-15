@@ -139,6 +139,9 @@ export interface AttachAcpSessionOptions {
   // `session/new`. The agent verifies the session and, if it is gone, returns a
   // structured `resume_failed` error the caller maps to its reseed path.
   resumeSessionId?: string | null;
+  // Standard ACP agents (Hermes) resume with sessionId. Vela keeps exposing a
+  // distinct upstream OpenCode handle through openCodeSessionId.
+  durableSessionIdSource?: 'openCodeSessionId' | 'sessionId';
   /** Safe model/session metadata attached to the exact prompt-frame diagnostic. */
   promptBudgetContext?: AcpPromptBudgetContext;
   // Subsegment timing markers for spawn->first-token attribution (#3408 §4).
@@ -201,6 +204,7 @@ export function attachAcpSession({
   modelUnavailableErrorCode,
   completePromptOnTurnEnd = false,
   resumeSessionId,
+  durableSessionIdSource = 'openCodeSessionId',
   promptBudgetContext,
   onCliReady,
   onSessionInit,
@@ -1349,8 +1353,9 @@ export function attachAcpSession({
     if (expectedId === 2) {
       sessionId = typeof result.sessionId === 'string' ? result.sessionId : null;
       // The durable handle for resuming this session on the next turn.
+      const durableSessionIdCandidate = result[durableSessionIdSource];
       durableSessionId =
-        typeof result.openCodeSessionId === 'string' ? result.openCodeSessionId : null;
+        typeof durableSessionIdCandidate === 'string' ? durableSessionIdCandidate : null;
       // session/new acknowledged with a session id = handshake done (#3408 §4).
       if (sessionId) onSessionInit?.();
       const modelConfig = findModelConfigOption(result.configOptions);
