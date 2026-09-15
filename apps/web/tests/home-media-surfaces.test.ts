@@ -34,4 +34,26 @@ describe('Home image composer metadata', () => {
       imageModel: 'gemini-3.1-flash-image-preview',
     });
   });
+
+  it('replaces a stale Vela seed with the selected provider default', () => {
+    const composer = buildHomeMediaComposer('image', [], { model: 'vela/gpt-image-2' }, [], {
+      defaultImageModel: 'gemini-3.1-flash-image-preview',
+    });
+
+    expect(metadataForHomeMediaComposer('image', composer.inputs, [])).toEqual({
+      kind: 'image',
+      imageModel: 'gemini-3.1-flash-image-preview',
+    });
+  });
+
+  it('preserves an explicit non-default model when a provider default exists', () => {
+    const composer = buildHomeMediaComposer('image', [], { model: 'gpt-image-2' }, [], {
+      defaultImageModel: 'gemini-3.1-flash-image-preview',
+    });
+
+    expect(metadataForHomeMediaComposer('image', composer.inputs, [])).toEqual({
+      kind: 'image',
+      imageModel: 'gpt-image-2',
+    });
+  });
 });
