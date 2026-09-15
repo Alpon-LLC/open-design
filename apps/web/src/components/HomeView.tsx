@@ -2102,17 +2102,28 @@ export function HomeView({
     const normalizedInputs = active.mediaSurface
       ? normalizeHomeMediaInputs(active.mediaSurface, nextInputs, promptTemplates, elevenLabsVoices, composerImageModels)
       : nextInputs;
-    const inputsValid = pluginInputsAreValid(active.inputFields, normalizedInputs);
-    const inputsChanged = !inputsEqual(active.inputs, normalizedInputs);
+    const mediaComposer = active.mediaSurface
+      ? buildHomeMediaComposer(active.mediaSurface, promptTemplates, normalizedInputs, elevenLabsVoices, {
+          elevenLabsVoiceWarning,
+          elevenLabsVoicesLoading,
+          imageModels: composerImageModels,
+          defaultImageModel,
+        })
+      : null;
+    const effectiveInputs = mediaComposer?.inputs ?? normalizedInputs;
+    const inputFields = mediaComposer?.fields ?? active.inputFields;
+    const inputsValid = pluginInputsAreValid(inputFields, effectiveInputs);
+    const inputsChanged = !inputsEqual(active.inputs, effectiveInputs);
     setActive({
       ...active,
-      inputs: normalizedInputs,
+      inputs: effectiveInputs,
+      inputFields,
       inputsValid,
       projectMetadata: active.mediaSurface
-        ? metadataForHomeMediaComposer(active.mediaSurface, normalizedInputs, promptTemplates)
-        : homeCreateProjectMetadata(active.projectKind, normalizedInputs, active.projectMetadata),
+        ? metadataForHomeMediaComposer(active.mediaSurface, effectiveInputs, promptTemplates)
+        : homeCreateProjectMetadata(active.projectKind, effectiveInputs, active.projectMetadata),
       result:
-        inputsChanged && !inputsEqual(active.result?.appliedPlugin?.inputs, normalizedInputs)
+        inputsChanged && !inputsEqual(active.result?.appliedPlugin?.inputs, effectiveInputs)
           ? null
           : active.result,
       lastRenderedPrompt: nextPrompt,
