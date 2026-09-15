@@ -669,6 +669,13 @@ export const AUDIO_DURATIONS_SEC: number[] = [5, 10, 15, 30, 60, 120];
 
 export const DEFAULT_IMAGE_MODEL =
   IMAGE_MODELS.find((m) => m.default)?.id ?? IMAGE_MODELS[0]!.id;
+export function resolveDefaultImageModel(
+  providers: Record<string, { defaultImageProvider?: boolean }> | undefined,
+): string {
+  const providerId = Object.entries(providers ?? {})
+    .find(([, entry]) => entry.defaultImageProvider)?.[0];
+  return IMAGE_MODELS.find((model) => model.provider === providerId)?.id ?? DEFAULT_IMAGE_MODEL;
+}
 export const DEFAULT_VIDEO_MODEL =
   VIDEO_MODELS.find((m) => m.default)?.id ?? VIDEO_MODELS[0]!.id;
 export const DEFAULT_AUDIO_MODEL: Record<AudioKind, string> = {

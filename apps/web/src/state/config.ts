@@ -819,6 +819,7 @@ interface PublicMediaProviderConfigEntry {
   apiKeyTail?: string;
   baseUrl?: string;
   model?: string;
+  defaultImageProvider?: boolean;
 }
 
 interface PublicMediaProviderConfigResponse {
@@ -839,6 +840,7 @@ interface MediaProviderDaemonWriteEntry {
   preserveApiKey?: boolean;
   baseUrl?: string;
   model?: string;
+  defaultImageProvider?: boolean;
 }
 
 interface MediaProviderDaemonWriteRequest {
@@ -914,13 +916,15 @@ export function buildMediaProvidersForDaemonSave(
       || daemonEntry?.baseUrl?.trim()
       || '';
     const model = currentEntry?.model?.trim() || daemonEntry?.model?.trim() || '';
-    if (!apiKey && !preserveApiKey && !explicitBaseUrl && !model) continue;
+    const defaultImageProvider = currentEntry?.defaultImageProvider === true;
+    if (!apiKey && !preserveApiKey && !explicitBaseUrl && !model && !defaultImageProvider) continue;
     const baseUrl = explicitBaseUrl || defaultBaseUrlForProvider(providerId);
     providers[providerId] = {
       ...(apiKey ? { apiKey } : {}),
       ...(preserveApiKey ? { preserveApiKey: true } : {}),
       ...(baseUrl ? { baseUrl } : {}),
       ...(model ? { model } : {}),
+      ...(defaultImageProvider ? { defaultImageProvider: true } : {}),
     };
   }
   return {
@@ -963,6 +967,7 @@ export async function fetchMediaProvidersFromDaemon(): Promise<DaemonMediaProvid
         ...(typeof entry?.model === 'string' && entry.model.trim()
           ? { model: entry.model.trim() }
           : {}),
+        ...(entry?.defaultImageProvider === true ? { defaultImageProvider: true } : {}),
       };
     }
     return {

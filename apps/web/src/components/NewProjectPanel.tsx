@@ -45,6 +45,7 @@ import {
   findProvider,
   imageModelIdForPromptTemplate,
   IMAGE_MODELS,
+  resolveDefaultImageModel,
   MEDIA_ASPECTS,
   type MediaModel,
   VIDEO_LENGTHS_SEC,
@@ -361,7 +362,7 @@ export function NewProjectPanel({
   // Blank card: create routes through the tab's default skill. A template id
   // routes the project through that design template's SKILL.md instead.
   const [startTemplateId, setStartTemplateId] = useState<string | null>(null);
-  const [imageModel, setImageModel] = useState(DEFAULT_IMAGE_MODEL);
+  const [imageModel, setImageModel] = useState(() => resolveDefaultImageModel(mediaProviders));
   const [imageAspect, setImageAspect] = useState<MediaAspect>('1:1');
   const [videoModel, setVideoModel] = useState(DEFAULT_VIDEO_MODEL);
   const [videoModelTouched, setVideoModelTouched] = useState(false);
