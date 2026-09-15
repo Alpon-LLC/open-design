@@ -139,7 +139,7 @@ import {
   liveArtifactPreviewUrl,
   openExternalUrl,
 } from '../providers/registry';
-import { MEDIA_PROVIDERS } from '../media/models';
+import { IMAGE_MODELS, MEDIA_PROVIDERS } from '../media/models';
 import { useByokImageModelOptions, useByokVideoModelOptions, useByokSpeechModelOptions } from '../media/aihubmix-image-models';
 import { isVisualStabilityMode } from '../utils/visualStability';
 import { byokProviderRequiresApiKey } from '../utils/byokProvider';
@@ -7760,6 +7760,7 @@ function MediaProvidersSection({
       model?: string;
       apiKeyConfigured?: boolean;
       apiKeyTail?: string;
+      defaultImageProvider?: boolean;
     },
   ) => {
     onChange(provider.id);
@@ -7859,6 +7860,9 @@ function MediaProvidersSection({
   const activeClearable = Boolean(activeEntry && isStoredMediaProviderEntryPresent(activeEntry));
   const activeApiKeyVisible = activeProvider ? visibleApiKeys.has(activeProvider.id) : false;
   const activeRequiresCredentials = activeProvider?.credentialsRequired !== false;
+  const activeSupportsImage = activeProvider
+    ? IMAGE_MODELS.some((model) => model.provider === activeProvider.id)
+    : false;
 
   return (
     <section className="settings-section">
@@ -8077,6 +8081,28 @@ function MediaProvidersSection({
           </div>
           <div className="media-provider-detail-actions">
             <span className="hint">{t('settings.mediaProviderSaveHint')}</span>
+            {activeSupportsImage && activeClearable ? (
+              <label className="media-provider-default-toggle">
+                <input
+                  type="radio"
+                  name="default-image-provider"
+                  checked={activeEntry.defaultImageProvider === true}
+                  onChange={() => {
+                    for (const provider of availableProviders) onChange(provider.id);
+                    setCfg((curr) => ({
+                      ...curr,
+                      mediaProviders: Object.fromEntries(
+                        Object.entries(curr.mediaProviders ?? {}).map(([id, entry]) => [
+                          id,
+                          { ...entry, defaultImageProvider: id === activeProvider.id },
+                        ]),
+                      ),
+                    }));
+                  }}
+                />
+                {t('settings.mediaProviderDefaultImage')}
+              </label>
+            ) : null}
             <button
               type="button"
               className="ghost"

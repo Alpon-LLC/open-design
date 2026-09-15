@@ -244,6 +244,7 @@ export interface MediaProviderCredentials {
   apiKeyConfigured?: boolean;
   apiKeyTail?: string;
   source?: string;
+  defaultImageProvider?: boolean;
 }
 
 export interface ApiProtocolConfig {
