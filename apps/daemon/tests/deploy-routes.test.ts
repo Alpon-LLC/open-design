@@ -713,6 +713,9 @@ describe('deploy provider routes', () => {
               : String(input);
         const method = init?.method || (input instanceof Request ? input.method : 'GET');
         if (url.startsWith(baseUrl)) return realFetch(input, init);
+        if (url.includes('/v2/files') && method === 'POST') {
+          return new Response(null, { status: 200 });
+        }
         if (url.includes('/v13/deployments') && method === 'POST') {
           const body = JSON.parse(String(init?.body ?? '{}'));
           expect(body).not.toHaveProperty('cloudflarePages');
@@ -761,12 +764,50 @@ describe('deploy provider routes', () => {
             },
           }),
         });
-        expect(deployResp.status).toBe(200);
-        expect(await deployResp.json()).toMatchObject({
+        expect(deployResp.status).toBe(202);
+        const queued = await deployResp.json();
+        expect(queued).toMatchObject({
+          providerId: VERCEL_PROVIDER_ID,
+          status: 'deploying',
+        });
+
+        const duplicateResp = await fetch(`${baseUrl}/api/projects/${projectId}/deploy`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName: 'index.html', providerId: VERCEL_PROVIDER_ID }),
+        });
+        expect(duplicateResp.status).toBe(202);
+        expect(await duplicateResp.json()).toMatchObject({ id: queued.id, status: 'deploying' });
+        expect(fetchMock.mock.calls.filter(([input, init]) =>
+          String(input).includes('/v13/deployments') && init?.method === 'POST')).toHaveLength(1);
+
+        let completed: any = queued;
+        for (let attempt = 0; attempt < 40 && completed.status === 'deploying'; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          const deploymentsResp = await fetch(`${baseUrl}/api/projects/${projectId}/deployments`);
+          const payload = await deploymentsResp.json();
+          completed = payload.deployments.find((item: { id: string }) => item.id === queued.id);
+        }
+        expect(completed).toMatchObject({
           providerId: VERCEL_PROVIDER_ID,
           url: 'https://vercel.example',
           status: 'ready',
         });
+
+        const laterResp = await fetch(`${baseUrl}/api/projects/${projectId}/deploy`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName: 'index.html', providerId: VERCEL_PROVIDER_ID }),
+        });
+        expect(laterResp.status).toBe(202);
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          const count = fetchMock.mock.calls.filter(([input, init]) =>
+            String(input).includes('/v13/deployments') && init?.method === 'POST').length;
+          if (count === 2) break;
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        expect(fetchMock.mock.calls.filter(([input, init]) =>
+          String(input).includes('/v13/deployments') && init?.method === 'POST')).toHaveLength(2);
       } finally {
         vi.unstubAllGlobals();
       }

@@ -6,6 +6,8 @@ export interface RegisterDeployRoutesDeps extends RouteDeps<'db' | 'http' | 'pat
   authorizeProjectRequest: AuthorizeProjectRequest;
 }
 
+const activeVercelDeploys = new Map<string, Promise<void>>();
+
 export function registerDeployRoutes(app: Express, ctx: RegisterDeployRoutesDeps) {
   const { db } = ctx;
   const { sendApiError } = ctx.http;
@@ -147,6 +149,57 @@ export function registerDeployRoutes(app: Express, ctx: RegisterDeployRoutesDeps
         { metadata: deployProject?.metadata, includeProjectFiles: true },
       );
       const project = getProject(db, req.params.id);
+      if (providerId === VERCEL_PROVIDER_ID) {
+        const key = `${req.params.id}\0${fileName}\0${providerId}\0preview`;
+        const now = Date.now();
+        const pending = upsertDeployment(db, {
+          id: prior?.id ?? randomUUID(),
+          projectId: req.params.id,
+          fileName,
+          providerId,
+          url: prior?.url ?? '',
+          deploymentId: prior?.deploymentId,
+          deploymentCount: prior?.deploymentCount ?? 0,
+          target: 'preview',
+          status: 'deploying',
+          statusMessage: null,
+          reachableAt: null,
+          providerMetadata: prior?.providerMetadata,
+          createdAt: prior?.createdAt ?? now,
+          updatedAt: now,
+        });
+        if (!activeVercelDeploys.has(key)) {
+          const job = Promise.resolve().then(async () => {
+            try {
+              const result = await deployToVercel({
+                config: await readDeployConfig(VERCEL_PROVIDER_ID),
+                files,
+                projectId: req.params.id,
+              });
+              upsertDeployment(db, {
+                ...pending,
+                url: result.url,
+                deploymentId: result.deploymentId,
+                deploymentCount: (prior?.deploymentCount ?? 0) + 1,
+                target: result.target,
+                status: result.status,
+                statusMessage: result.statusMessage,
+                reachableAt: result.reachableAt,
+                updatedAt: Date.now(),
+              });
+            } catch (error: any) {
+              upsertDeployment(db, {
+                ...pending,
+                status: 'failed',
+                statusMessage: String(error?.message || error),
+                updatedAt: Date.now(),
+              });
+            }
+          }).finally(() => activeVercelDeploys.delete(key));
+          activeVercelDeploys.set(key, job);
+        }
+        return res.status(202).json(publicDeployment(pending));
+      }
       const cloudflarePagesProjectName =
         providerId === CLOUDFLARE_PAGES_PROVIDER_ID
           ? cloudflarePagesProjectNameForDeploy(db, req.params.id, project?.name, prior)
