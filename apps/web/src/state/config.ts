@@ -10,6 +10,7 @@ import type {
   OrbitConfig,
   PetConfig,
 } from '../types';
+import type { MediaProviderConfigResponse, MediaProviderConfigWriteRequest } from '@open-design/contracts';
 import { resolveFixedOriginBaseUrl } from './apiProtocols';
 import {
   DEFAULT_ACCENT_COLOR,
@@ -813,18 +814,6 @@ interface PublicComposioConfigResponse {
   apiKeyTail?: string;
 }
 
-interface PublicMediaProviderConfigEntry {
-  configured?: boolean;
-  source?: string;
-  apiKeyTail?: string;
-  baseUrl?: string;
-  model?: string;
-  defaultImageProvider?: boolean;
-}
-
-interface PublicMediaProviderConfigResponse {
-  providers?: Record<string, PublicMediaProviderConfigEntry>;
-}
 
 export type DaemonMediaProvidersFetchResult =
   | {
@@ -835,18 +824,6 @@ export type DaemonMediaProvidersFetchResult =
     status: 'error';
   };
 
-interface MediaProviderDaemonWriteEntry {
-  apiKey?: string;
-  preserveApiKey?: boolean;
-  baseUrl?: string;
-  model?: string;
-  defaultImageProvider?: boolean;
-}
-
-interface MediaProviderDaemonWriteRequest {
-  providers: Record<string, MediaProviderDaemonWriteEntry>;
-  force: boolean;
-}
 
 function hasAnyDaemonManagedMediaProvider(
   providers: Record<string, MediaProviderCredentials> | null | undefined,
@@ -898,8 +875,8 @@ export function buildMediaProvidersForDaemonSave(
   currentProviders: Record<string, MediaProviderCredentials> | undefined,
   daemonProviders: Record<string, MediaProviderCredentials> | null | undefined,
   options?: { force?: boolean },
-): MediaProviderDaemonWriteRequest {
-  const providers: Record<string, MediaProviderDaemonWriteEntry> = {};
+): MediaProviderConfigWriteRequest {
+  const providers: MediaProviderConfigWriteRequest['providers'] = {};
   for (const [providerId, currentEntry] of Object.entries(currentProviders ?? {})) {
     const daemonEntry = daemonProviders?.[providerId];
     const apiKey = currentEntry?.apiKey?.trim() ?? '';
@@ -952,7 +929,7 @@ export async function fetchMediaProvidersFromDaemon(): Promise<DaemonMediaProvid
   try {
     const response = await fetch('/api/media/config');
     if (!response.ok) return { status: 'error' };
-    const payload = await response.json() as PublicMediaProviderConfigResponse;
+    const payload = await response.json() as MediaProviderConfigResponse;
     const rawProviders = payload.providers ?? {};
     const providers: AppConfig['mediaProviders'] = {};
     for (const [providerId, entry] of Object.entries(rawProviders)) {

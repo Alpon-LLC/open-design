@@ -42,9 +42,10 @@ import { MEDIA_PROVIDERS } from './models.js';
 import { expandHomePrefix } from '../home-expansion.js';
 import { resolveXAIBearer } from '../integrations/xai-credentials.js';
 import { isSandboxModeEnabled } from '../sandbox-mode.js';
+import type { MediaProviderConfigEntry, MediaProviderConfigResponse } from '@open-design/contracts';
 
 const PROVIDER_IDS = MEDIA_PROVIDERS.map((p) => p.id);
-type ProviderEntry = { apiKey?: string; baseUrl?: string; model?: string; defaultImageProvider?: boolean };
+type ProviderEntry = MediaProviderConfigEntry;
 type ProviderMap = Record<string, ProviderEntry>;
 type ModelAliasMap = Record<string, string>;
 type JsonRecord = Record<string, unknown>;
@@ -379,8 +380,7 @@ export async function resolveProviderConfig(projectRoot: string, providerId: str
  * frontend can show "••••" + a "configured" indicator without leaking
  * the secret back into the DOM.
  */
-export interface MaskedConfigResponse {
-  providers: Record<string, { configured: boolean; source: string; apiKeyTail: string; baseUrl: string; model?: string; defaultImageProvider?: boolean }>;
+export interface MaskedConfigResponse extends MediaProviderConfigResponse {
   /**
    * Effective alias map plus source attribution. The Settings UI can
    * show "from env" vs "from media-config.json" badges next to each
