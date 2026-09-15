@@ -8100,7 +8100,7 @@ function MediaProvidersSection({
                     }));
                   }}
                 />
-                Use as default for images
+                {t('settings.mediaProviderDefaultImage')}
               </label>
             ) : null}
             <button
