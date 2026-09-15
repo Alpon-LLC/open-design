@@ -7953,6 +7953,11 @@ function MediaProvidersSection({
                     aria-hidden
                   />
                   <span>{provider.label}</span>
+                  {entry?.defaultImageProvider ? (
+                    <span className="media-provider-chip-default">
+                      {t('settings.mediaProviderDefaultBadge')}
+                    </span>
+                  ) : null}
                   <VisuallyHidden>{statusLabel}</VisuallyHidden>
                 </button>
               );
@@ -7984,6 +7989,11 @@ function MediaProvidersSection({
               {activeProvider.credentialsRequired === false ? (
                 <span className="media-provider-badge on">
                   {t('settings.mediaProviderNoKeyRequired')}
+                </span>
+              ) : null}
+              {activeEntry.defaultImageProvider ? (
+                <span className="media-provider-badge on">
+                  {t('settings.mediaProviderDefaultBadge')}
                 </span>
               ) : null}
             </div>
@@ -8081,13 +8091,11 @@ function MediaProvidersSection({
           </div>
           <div className="media-provider-detail-actions">
             <span className="hint">{t('settings.mediaProviderSaveHint')}</span>
-            {activeSupportsImage && activeClearable ? (
-              <label className="media-provider-default-toggle">
-                <input
-                  type="radio"
-                  name="default-image-provider"
-                  checked={activeEntry.defaultImageProvider === true}
-                  onChange={() => {
+            {activeSupportsImage && activeClearable && !activeEntry.defaultImageProvider ? (
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
                     for (const provider of availableProviders) onChange(provider.id);
                     setCfg((curr) => ({
                       ...curr,
@@ -8098,10 +8106,10 @@ function MediaProvidersSection({
                         ]),
                       ),
                     }));
-                  }}
-                />
+                }}
+              >
                 {t('settings.mediaProviderDefaultImage')}
-              </label>
+              </button>
             ) : null}
             <button
               type="button"

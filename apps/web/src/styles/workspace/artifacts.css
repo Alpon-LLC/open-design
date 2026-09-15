@@ -802,6 +802,11 @@
   gap: 12px;
   padding-top: 4px;
 }
+.media-provider-chip-default {
+  color: var(--text-soft);
+  font-size: 10px;
+  font-weight: 600;
+}
 .media-provider-no-key {
   display: flex;
   align-items: flex-start;

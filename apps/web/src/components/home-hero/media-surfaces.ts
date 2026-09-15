@@ -53,13 +53,14 @@ export function buildHomeMediaComposer(
     elevenLabsVoiceWarning?: string | null;
     elevenLabsVoicesLoading?: boolean;
     imageModels?: MediaModel[];
+    defaultImageModel?: string;
   } = {},
 ): HomeMediaComposerState {
   const imageModels = options.imageModels ?? IMAGE_MODELS;
   const inputs = normalizeHomeMediaInputs(
     surface,
     {
-      ...defaultInputsForSurface(surface, promptTemplates),
+      ...defaultInputsForSurface(surface, promptTemplates, options.defaultImageModel),
       ...seedInputs,
     },
     promptTemplates,
@@ -311,12 +312,13 @@ function queryTemplateForSurface(surface: HomeComposerMediaSurface, inputs: Reco
 function defaultInputsForSurface(
   surface: HomeComposerMediaSurface,
   promptTemplates: PromptTemplateSummary[],
+  defaultImageModel = DEFAULT_IMAGE_MODEL,
 ): Record<string, unknown> {
   if (surface === 'image') {
     return {
       template: firstTemplateId(surface, promptTemplates),
       designSystem: 'the active project design system',
-      model: DEFAULT_IMAGE_MODEL,
+      model: defaultImageModel,
       ratio: '16:9',
       resolution: DEFAULT_MEDIA_RESOLUTION,
     };
