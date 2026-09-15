@@ -10,7 +10,6 @@ import type {
   OrbitConfig,
   PetConfig,
 } from '../types';
-import type { MediaProviderConfigResponse, MediaProviderConfigWriteRequest } from '@open-design/contracts';
 import { resolveFixedOriginBaseUrl } from './apiProtocols';
 import {
   DEFAULT_ACCENT_COLOR,
@@ -814,6 +813,17 @@ interface PublicComposioConfigResponse {
   apiKeyTail?: string;
 }
 
+interface PublicMediaProviderConfigEntry {
+  configured?: boolean;
+  source?: string;
+  apiKeyTail?: string;
+  baseUrl?: string;
+  model?: string;
+}
+
+interface PublicMediaProviderConfigResponse {
+  providers?: Record<string, PublicMediaProviderConfigEntry>;
+}
 
 export type DaemonMediaProvidersFetchResult =
   | {
@@ -824,6 +834,17 @@ export type DaemonMediaProvidersFetchResult =
     status: 'error';
   };
 
+interface MediaProviderDaemonWriteEntry {
+  apiKey?: string;
+  preserveApiKey?: boolean;
+  baseUrl?: string;
+  model?: string;
+}
+
+interface MediaProviderDaemonWriteRequest {
+  providers: Record<string, MediaProviderDaemonWriteEntry>;
+  force: boolean;
+}
 
 function hasAnyDaemonManagedMediaProvider(
   providers: Record<string, MediaProviderCredentials> | null | undefined,
@@ -875,8 +896,8 @@ export function buildMediaProvidersForDaemonSave(
   currentProviders: Record<string, MediaProviderCredentials> | undefined,
   daemonProviders: Record<string, MediaProviderCredentials> | null | undefined,
   options?: { force?: boolean },
-): MediaProviderConfigWriteRequest {
-  const providers: MediaProviderConfigWriteRequest['providers'] = {};
+): MediaProviderDaemonWriteRequest {
+  const providers: Record<string, MediaProviderDaemonWriteEntry> = {};
   for (const [providerId, currentEntry] of Object.entries(currentProviders ?? {})) {
     const daemonEntry = daemonProviders?.[providerId];
     const apiKey = currentEntry?.apiKey?.trim() ?? '';
@@ -893,15 +914,13 @@ export function buildMediaProvidersForDaemonSave(
       || daemonEntry?.baseUrl?.trim()
       || '';
     const model = currentEntry?.model?.trim() || daemonEntry?.model?.trim() || '';
-    const defaultImageProvider = currentEntry?.defaultImageProvider === true;
-    if (!apiKey && !preserveApiKey && !explicitBaseUrl && !model && !defaultImageProvider) continue;
+    if (!apiKey && !preserveApiKey && !explicitBaseUrl && !model) continue;
     const baseUrl = explicitBaseUrl || defaultBaseUrlForProvider(providerId);
     providers[providerId] = {
       ...(apiKey ? { apiKey } : {}),
       ...(preserveApiKey ? { preserveApiKey: true } : {}),
       ...(baseUrl ? { baseUrl } : {}),
       ...(model ? { model } : {}),
-      ...(defaultImageProvider ? { defaultImageProvider: true } : {}),
     };
   }
   return {
@@ -929,7 +948,7 @@ export async function fetchMediaProvidersFromDaemon(): Promise<DaemonMediaProvid
   try {
     const response = await fetch('/api/media/config');
     if (!response.ok) return { status: 'error' };
-    const payload = await response.json() as MediaProviderConfigResponse;
+    const payload = await response.json() as PublicMediaProviderConfigResponse;
     const rawProviders = payload.providers ?? {};
     const providers: AppConfig['mediaProviders'] = {};
     for (const [providerId, entry] of Object.entries(rawProviders)) {
@@ -944,7 +963,6 @@ export async function fetchMediaProvidersFromDaemon(): Promise<DaemonMediaProvid
         ...(typeof entry?.model === 'string' && entry.model.trim()
           ? { model: entry.model.trim() }
           : {}),
-        ...(entry?.defaultImageProvider === true ? { defaultImageProvider: true } : {}),
       };
     }
     return {

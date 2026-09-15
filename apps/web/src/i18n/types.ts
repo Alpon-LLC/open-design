@@ -607,8 +607,6 @@ export interface Dict {
   'settings.mediaProviderDocsTitle': string;
   'settings.mediaProviderDocsHint': string;
   'settings.mediaProviderSaveHint': string;
-  'settings.mediaProviderDefaultImage': string;
-  'settings.mediaProviderDefaultBadge': string;
   'settings.mediaProviderNoKeyRequired': string;
   'settings.mediaProviderNoKeyHint': string;
   'settings.privacy': string;
