@@ -4747,8 +4747,6 @@ export const id: Dict = {
   'settings.mediaProviderDocsTitle': 'Documentation',
   'settings.mediaProviderDocsHint': 'View setup instructions for this provider.',
   'settings.mediaProviderSaveHint': 'Changes are not saved until you select Save.',
-  'settings.mediaProviderDefaultImage': 'Use as default for images',
-  'settings.mediaProviderDefaultBadge': 'Default for images',
   'settings.mediaProviderNoKeyRequired': 'No key required',
   'settings.mediaProviderNoKeyHint': 'This provider uses a local login or bundled runtime.',
   'manualEdit.sectionImage': 'IMAGE',

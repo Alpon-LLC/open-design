@@ -1738,7 +1738,7 @@ async function runMedia(args) {
     printMediaHelp();
     return;
   }
-  if (sub !== 'generate' && sub !== 'wait' && sub !== 'scaffold' && sub !== 'default-image-provider') {
+  if (sub !== 'generate' && sub !== 'wait' && sub !== 'scaffold') {
     console.error(`unknown subcommand: od media ${sub}`);
     printMediaHelp();
     process.exit(1);
@@ -1746,51 +1746,9 @@ async function runMedia(args) {
 
   const idx = args.indexOf(sub);
   const subArgs = [...args.slice(0, idx), ...args.slice(idx + 1)];
-  if (sub === 'default-image-provider') return runMediaDefaultImageProvider(subArgs);
   if (sub === 'wait') return runMediaWait(subArgs);
   if (sub === 'scaffold') return runMediaScaffold(subArgs);
   return runMediaGenerate(subArgs);
-}
-
-async function runMediaDefaultImageProvider(rawArgs) {
-  const flags = parseFlags(rawArgs, {
-    string: ['provider', 'daemon-url'],
-    boolean: ['json'],
-  });
-  const providerId = typeof flags.provider === 'string' ? flags.provider.trim() : '';
-  if (!providerId) {
-    console.error('Usage: od media default-image-provider --provider <id> [--json]');
-    process.exit(2);
-  }
-  const base = (await libraryDaemonUrl(flags)).replace(/\/$/, '');
-  const currentResp = await fetch(`${base}/api/media/config`);
-  if (!currentResp.ok) return structuredHttpFailure(currentResp);
-  const current = await currentResp.json();
-  if (!current?.providers?.[providerId]?.configured) {
-    console.error(`media provider is not configured: ${providerId}`);
-    process.exit(2);
-  }
-  const providers = Object.fromEntries(
-    Object.entries(current.providers).map(([id, rawEntry]) => {
-      const entry = rawEntry && typeof rawEntry === 'object' ? rawEntry : {};
-      return [id, {
-        ...(entry.baseUrl ? { baseUrl: entry.baseUrl } : {}),
-        ...(entry.model ? { model: entry.model } : {}),
-        ...(entry.configured ? { preserveApiKey: true } : {}),
-        ...(id === providerId ? { defaultImageProvider: true } : {}),
-      }];
-    }),
-  );
-  const response = await fetch(`${base}/api/media/config`, {
-    method: 'PUT',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ providers, force: true }),
-  });
-  if (!response.ok) return structuredHttpFailure(response);
-  const output = { providerId, defaultImageProvider: true };
-  process.stdout.write(flags.json
-    ? `${JSON.stringify(output)}\n`
-    : `Default image provider: ${providerId}\n`);
 }
 
 async function runMediaScaffold(rawArgs) {

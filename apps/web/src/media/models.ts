@@ -326,7 +326,7 @@ export interface MediaModel {
  * `packages/model-bank/src/aiModels/openai.ts` and friends in lobehub.
  */
 export const IMAGE_MODELS: MediaModel[] = [
-  { id: 'vela/gpt-image-2', label: 'gpt-image-2 (Cloud)', hint: 'OpenDesign Cloud · managed image generation and editing', provider: 'vela', caps: ['t2i', 'i2i'], default: true },
+  { id: 'vela/gpt-image-2', label: 'gpt-image-2 (Cloud)', hint: 'OpenDesign Cloud · managed image generation and editing', provider: 'vela', caps: ['t2i', 'i2i'] },
   { id: 'vela/nano-banana-2', label: 'nano-banana-2 (Cloud)', hint: 'OpenDesign Cloud · managed image generation and editing', provider: 'vela', caps: ['t2i', 'i2i'] },
   { id: 'vela/nano-banana-2-lite', label: 'nano-banana-2-lite (Cloud)', hint: 'OpenDesign Cloud · fast managed image generation and editing', provider: 'vela', caps: ['t2i', 'i2i'] },
   { id: 'vela/seedream-5.0', label: 'seedream-5.0 (Cloud)', hint: 'OpenDesign Cloud · managed image generation and editing', provider: 'vela', caps: ['t2i', 'i2i'] },
@@ -458,6 +458,7 @@ export const IMAGE_MODELS: MediaModel[] = [
     hint: 'Nano Banana · text-to-image',
     provider: 'nanobanana',
     caps: ['t2i'],
+    default: true,
   },
 
   // ImageRouter — OpenAI-compatible routed image models.
@@ -669,13 +670,6 @@ export const AUDIO_DURATIONS_SEC: number[] = [5, 10, 15, 30, 60, 120];
 
 export const DEFAULT_IMAGE_MODEL =
   IMAGE_MODELS.find((m) => m.default)?.id ?? IMAGE_MODELS[0]!.id;
-export function resolveDefaultImageModel(
-  providers: Record<string, { defaultImageProvider?: boolean }> | undefined,
-): string {
-  const providerId = Object.entries(providers ?? {})
-    .find(([, entry]) => entry.defaultImageProvider)?.[0];
-  return IMAGE_MODELS.find((model) => model.provider === providerId)?.id ?? DEFAULT_IMAGE_MODEL;
-}
 export const DEFAULT_VIDEO_MODEL =
   VIDEO_MODELS.find((m) => m.default)?.id ?? VIDEO_MODELS[0]!.id;
 export const DEFAULT_AUDIO_MODEL: Record<AudioKind, string> = {

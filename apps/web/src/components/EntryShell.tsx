@@ -1805,7 +1805,6 @@ export function EntryShell({
                 skillsLoading={skillsLoading}
                 connectors={connectors}
                 promptTemplates={promptTemplates}
-                mediaProviders={config.mediaProviders}
                 executionSwitcher={view === 'home' ? homeExecutionSwitcher : undefined}
                 artifactUpgradeSlot={artifactUpgradeSlot}
                 deepSeekV4FlashCampaignAudience={deepSeekV4FlashCampaignAudience}

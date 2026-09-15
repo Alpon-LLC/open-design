@@ -13,32 +13,6 @@ export const MEDIA_SURFACES = [
 
 export type MediaSurface = (typeof MEDIA_SURFACES)[number];
 
-export interface MediaProviderConfigEntry {
-  apiKey?: string;
-  preserveApiKey?: boolean;
-  baseUrl?: string;
-  model?: string;
-  defaultImageProvider?: boolean;
-}
-
-export interface PublicMediaProviderConfigEntry {
-  configured?: boolean;
-  source?: string;
-  apiKeyTail?: string;
-  baseUrl?: string;
-  model?: string;
-  defaultImageProvider?: boolean;
-}
-
-export interface MediaProviderConfigWriteRequest {
-  providers: Record<string, MediaProviderConfigEntry>;
-  force: boolean;
-}
-
-export interface MediaProviderConfigResponse {
-  providers: Record<string, PublicMediaProviderConfigEntry>;
-}
-
 export const MEDIA_TASK_STATUSES = [
   'queued',
   'running',

@@ -139,7 +139,7 @@ import {
   liveArtifactPreviewUrl,
   openExternalUrl,
 } from '../providers/registry';
-import { IMAGE_MODELS, MEDIA_PROVIDERS } from '../media/models';
+import { MEDIA_PROVIDERS } from '../media/models';
 import { useByokImageModelOptions, useByokVideoModelOptions, useByokSpeechModelOptions } from '../media/aihubmix-image-models';
 import { isVisualStabilityMode } from '../utils/visualStability';
 import { byokProviderRequiresApiKey } from '../utils/byokProvider';
@@ -7760,7 +7760,6 @@ function MediaProvidersSection({
       model?: string;
       apiKeyConfigured?: boolean;
       apiKeyTail?: string;
-      defaultImageProvider?: boolean;
     },
   ) => {
     onChange(provider.id);
@@ -7860,9 +7859,6 @@ function MediaProvidersSection({
   const activeClearable = Boolean(activeEntry && isStoredMediaProviderEntryPresent(activeEntry));
   const activeApiKeyVisible = activeProvider ? visibleApiKeys.has(activeProvider.id) : false;
   const activeRequiresCredentials = activeProvider?.credentialsRequired !== false;
-  const activeSupportsImage = activeProvider
-    ? IMAGE_MODELS.some((model) => model.provider === activeProvider.id)
-    : false;
 
   return (
     <section className="settings-section">
@@ -7953,11 +7949,6 @@ function MediaProvidersSection({
                     aria-hidden
                   />
                   <span>{provider.label}</span>
-                  {entry?.defaultImageProvider ? (
-                    <span className="media-provider-chip-default">
-                      {t('settings.mediaProviderDefaultBadge')}
-                    </span>
-                  ) : null}
                   <VisuallyHidden>{statusLabel}</VisuallyHidden>
                 </button>
               );
@@ -7989,11 +7980,6 @@ function MediaProvidersSection({
               {activeProvider.credentialsRequired === false ? (
                 <span className="media-provider-badge on">
                   {t('settings.mediaProviderNoKeyRequired')}
-                </span>
-              ) : null}
-              {activeEntry.defaultImageProvider ? (
-                <span className="media-provider-badge on">
-                  {t('settings.mediaProviderDefaultBadge')}
                 </span>
               ) : null}
             </div>
@@ -8091,26 +8077,6 @@ function MediaProvidersSection({
           </div>
           <div className="media-provider-detail-actions">
             <span className="hint">{t('settings.mediaProviderSaveHint')}</span>
-            {activeSupportsImage && activeClearable && !activeEntry.defaultImageProvider ? (
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => {
-                    for (const provider of availableProviders) onChange(provider.id);
-                    setCfg((curr) => ({
-                      ...curr,
-                      mediaProviders: Object.fromEntries(
-                        Object.entries(curr.mediaProviders ?? {}).map(([id, entry]) => [
-                          id,
-                          { ...entry, defaultImageProvider: id === activeProvider.id },
-                        ]),
-                      ),
-                    }));
-                }}
-              >
-                {t('settings.mediaProviderDefaultImage')}
-              </button>
-            ) : null}
             <button
               type="button"
               className="ghost"

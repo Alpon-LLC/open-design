@@ -42,10 +42,9 @@ import { MEDIA_PROVIDERS } from './models.js';
 import { expandHomePrefix } from '../home-expansion.js';
 import { resolveXAIBearer } from '../integrations/xai-credentials.js';
 import { isSandboxModeEnabled } from '../sandbox-mode.js';
-import type { MediaProviderConfigEntry, MediaProviderConfigResponse } from '@open-design/contracts';
 
 const PROVIDER_IDS = MEDIA_PROVIDERS.map((p) => p.id);
-type ProviderEntry = MediaProviderConfigEntry;
+type ProviderEntry = { apiKey?: string; baseUrl?: string; model?: string };
 type ProviderMap = Record<string, ProviderEntry>;
 type ModelAliasMap = Record<string, string>;
 type JsonRecord = Record<string, unknown>;
@@ -380,7 +379,8 @@ export async function resolveProviderConfig(projectRoot: string, providerId: str
  * frontend can show "••••" + a "configured" indicator without leaking
  * the secret back into the DOM.
  */
-export interface MaskedConfigResponse extends MediaProviderConfigResponse {
+export interface MaskedConfigResponse {
+  providers: Record<string, { configured: boolean; source: string; apiKeyTail: string; baseUrl: string; model?: string }>;
   /**
    * Effective alias map plus source attribution. The Settings UI can
    * show "from env" vs "from media-config.json" badges next to each
@@ -416,7 +416,6 @@ export async function readMaskedConfig(projectRoot: string): Promise<MaskedConfi
       ...(typeof entry.model === 'string' && entry.model.trim()
         ? { model: entry.model.trim() }
         : {}),
-      ...(entry.defaultImageProvider === true ? { defaultImageProvider: true } : {}),
     };
   }
   const aliases = await readAliasMap(projectRoot);
@@ -461,13 +460,11 @@ export async function writeConfig(projectRoot: string, body: unknown) {
       typeof entry.model === 'string' && entry.model.trim()
         ? entry.model.trim()
         : '';
-    const defaultImageProvider = entry.defaultImageProvider === true;
-    if (!apiKey && !baseUrl && !model && !defaultImageProvider) continue;
+    if (!apiKey && !baseUrl && !model) continue;
     next[id] = {
       apiKey,
       baseUrl,
       ...(model ? { model } : {}),
-      ...(defaultImageProvider ? { defaultImageProvider: true } : {}),
     };
   }
   if (Object.keys(next).length === 0) {
