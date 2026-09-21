@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   buildHomeMediaComposer,
   metadataForHomeMediaComposer,
+  normalizeHomeMediaInputs,
+  seedHomeMediaInputs,
 } from '../src/components/home-hero/media-surfaces';
 
 describe('Home image composer metadata', () => {
@@ -24,7 +26,7 @@ describe('Home image composer metadata', () => {
     });
   });
 
-  it('routes legacy curated gpt-image-2 templates through the current default', () => {
+  it('maps a legacy curated seed to the default but preserves a later model override', () => {
     const templates = [{
       id: 'illustrated-city-food-map',
       surface: 'image' as const,
@@ -34,14 +36,24 @@ describe('Home image composer metadata', () => {
       model: 'gpt-image-2',
       source: { repo: 'open-design', license: 'CC-BY-4.0' },
     }];
-    const composer = buildHomeMediaComposer('image', templates, {
+    const seeded = seedHomeMediaInputs('image', {
       template: 'illustrated-city-food-map',
       model: 'gpt-image-2',
-    });
+    }, templates);
+    const composer = buildHomeMediaComposer('image', templates, seeded);
 
     expect(metadataForHomeMediaComposer('image', composer.inputs, templates)).toMatchObject({
       kind: 'image',
       imageModel: 'gemini-3.1-flash-image-preview',
+    });
+
+    const overridden = normalizeHomeMediaInputs('image', {
+      ...composer.inputs,
+      model: 'gpt-image-2',
+    }, templates);
+    expect(metadataForHomeMediaComposer('image', overridden, templates)).toMatchObject({
+      kind: 'image',
+      imageModel: 'gpt-image-2',
     });
   });
 });

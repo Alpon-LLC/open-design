@@ -124,6 +124,7 @@ import {
   homeMediaSurfaceForChipId,
   metadataForHomeMediaComposer,
   normalizeHomeMediaInputs,
+  seedHomeMediaInputs,
   type HomeComposerMediaSurface,
 } from './home-hero/media-surfaces';
 import {
@@ -2303,7 +2304,7 @@ export function HomeView({
             const composer = buildHomeMediaComposer(
               mediaSurface,
               promptTemplates,
-              action.inputs,
+              seedHomeMediaInputs(mediaSurface, action.inputs ?? {}, promptTemplates),
               elevenLabsVoices,
               {
                 elevenLabsVoiceWarning,
@@ -2546,7 +2547,7 @@ export function HomeView({
           const composer = buildHomeMediaComposer(
             mediaSurface,
             promptTemplates,
-            chip.action.inputs,
+            seedHomeMediaInputs(mediaSurface, chip.action.inputs ?? {}, promptTemplates),
             elevenLabsVoices,
             {
               elevenLabsVoiceWarning,
