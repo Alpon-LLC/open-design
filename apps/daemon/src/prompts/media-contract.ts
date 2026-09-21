@@ -1,3 +1,5 @@
+import { DEFAULT_IMAGE_MODEL_ID } from '@open-design/contracts';
+
 /**
  * Media generation contract. Pinned LAST in the system prompt for
  * image / video / audio surfaces so its hard rules win over softer
@@ -507,7 +509,7 @@ path is given.
      use \`flux-pro-ultra\` — but tell the user it takes 60–180s
    - **Image, default / no preference stated**: use an explicitly named model
      in the current user message, then the run-scoped BYOK image default, then the project metadata's
-     \`imageModel\` if set; otherwise use \`vela/gpt-image-2\`
+     \`imageModel\` if set; otherwise use \`${DEFAULT_IMAGE_MODEL_ID}\`
    - **Video, best quality**: use project metadata \`videoModel\` if set; otherwise
      \`doubao-seedance-2-0-260128\`
 

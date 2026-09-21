@@ -120,7 +120,7 @@ describe('composeSystemPrompt — metadata.promptTemplate', () => {
     });
 
     expect(out).toContain('**imageModel**: (not provided)');
-    expect(out).toContain('suggested model: vela/gpt-image-2');
+    expect(out).toContain('suggested model: gemini-3.1-flash-image-preview');
     expect(out).not.toContain('suggested model: gpt-image-2');
   });
 

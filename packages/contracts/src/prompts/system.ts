@@ -1,3 +1,5 @@
+import { DEFAULT_IMAGE_MODEL_ID } from '../api/media.js';
+
 /**
  * Prompt composer. The base is the OD-adapted "expert designer" system
  * prompt (see ./official-system.ts) — a full identity, workflow, and
@@ -1014,7 +1016,7 @@ function promptTemplateReferenceLines(
       metadata.kind === 'image' &&
       !metadata.imageModel?.trim() &&
       tpl.model === 'gpt-image-2'
-        ? 'vela/gpt-image-2'
+        ? DEFAULT_IMAGE_MODEL_ID
         : tpl.model;
     if (suggestedModel) meta.push(`suggested model: ${suggestedModel}`);
     if (tpl.aspect) meta.push(`aspect: ${tpl.aspect}`);
