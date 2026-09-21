@@ -7,4 +7,5 @@ describe('default image model', () => {
     expect(DEFAULT_IMAGE_MODEL).toBe('gemini-3.1-flash-image-preview');
     expect(IMAGE_MODELS.find((model) => model.default)?.provider).toBe('nanobanana');
   });
+
 });

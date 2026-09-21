@@ -45,6 +45,7 @@ import {
 } from './media-contract.js';
 import { renderPanelPrompt } from './panel.js';
 import { defaultCritiqueConfig, type CritiqueConfig } from '@open-design/contracts/critique';
+import { DEFAULT_IMAGE_MODEL_ID } from '@open-design/contracts';
 import {
   composeOdNextStrategyRequestPromptV2,
   executionProfileFromStreamFormat,
@@ -572,7 +573,7 @@ function mediaDefaultsForRuntime(
   if (agentId !== 'amr') return defaults;
   return {
     ...defaults,
-    imageModel: defaults?.imageModel?.trim() || 'vela/gpt-image-2',
+    imageModel: defaults?.imageModel?.trim() || DEFAULT_IMAGE_MODEL_ID,
     videoModel:
       defaults?.videoModel?.trim()
       || 'vela/doubao-seedance-2-0-260128',
@@ -2063,7 +2064,7 @@ function renderMetadataBlock(
       metadata.kind === 'image' &&
       !metadata.imageModel?.trim() &&
       tpl.model === 'gpt-image-2'
-        ? 'vela/gpt-image-2'
+        ? DEFAULT_IMAGE_MODEL_ID
         : tpl.model;
     if (suggestedModel) meta.push(`suggested model: ${suggestedModel}`);
     if (tpl.aspect) meta.push(`aspect: ${tpl.aspect}`);

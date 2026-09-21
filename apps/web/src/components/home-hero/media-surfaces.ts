@@ -79,6 +79,17 @@ export function buildHomeMediaComposer(
   };
 }
 
+export function seedHomeMediaInputs(
+  surface: HomeComposerMediaSurface,
+  inputs: Record<string, unknown>,
+  promptTemplates: PromptTemplateSummary[],
+): Record<string, unknown> {
+  if (surface !== 'image') return inputs;
+  const template = promptTemplates.find((item) => item.id === stringValue(inputs.template));
+  if (template?.model !== 'gpt-image-2' || stringValue(inputs.model) !== 'gpt-image-2') return inputs;
+  return { ...inputs, model: DEFAULT_IMAGE_MODEL };
+}
+
 export function normalizeHomeMediaInputs(
   surface: HomeComposerMediaSurface,
   raw: Record<string, unknown>,
@@ -88,6 +99,7 @@ export function normalizeHomeMediaInputs(
 ): Record<string, unknown> {
   if (surface === 'image') {
     const ratio = validOption(stringValue(raw.ratio) || stringValue(raw.aspect), MEDIA_ASPECTS, '16:9');
+
     return {
       mediaKind: 'image',
       subject: stringValue(raw.subject) || 'a premium product concept',

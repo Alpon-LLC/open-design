@@ -436,12 +436,12 @@ describe('composeSystemPrompt', () => {
       expect(prompt).toContain('Do not output generated source code in a `<artifact type="text/html">...</artifact>` block.');
     });
 
-    it('uses Vela media defaults only for AMR and forbids direct Vela calls', () => {
+    it('uses catalog media defaults for AMR and forbids direct Vela calls', () => {
       const amrPrompt = composeSystemPrompt({
         agentId: 'amr',
         metadata: { kind: 'image', imageModel: 'vela/gpt-image-2' } as any,
       });
-      expect(amrPrompt).toContain('Image model: `vela/gpt-image-2`');
+      expect(amrPrompt).toContain('Image model: `gemini-3.1-flash-image-preview`');
       expect(amrPrompt).toContain(
         'Video model: `vela/doubao-seedance-2-0-260128`',
       );
@@ -449,6 +449,12 @@ describe('composeSystemPrompt', () => {
       expect(amrPrompt).not.toContain('### Run-scoped BYOK media defaults');
       expect(amrPrompt).toContain('Never invoke the `vela` CLI directly');
       expect(amrPrompt).toContain('trusted Workspace attribution');
+
+      const defaultPrompt = composeSystemPrompt({
+        agentId: 'amr',
+        metadata: { kind: 'prototype' } as any,
+      });
+      expect(defaultPrompt).toContain('Image model: `gemini-3.1-flash-image-preview`');
 
       const claudePrompt = composeSystemPrompt({ agentId: 'claude' });
       expect(claudePrompt).not.toContain('Image model: `vela/gpt-image-2`');
@@ -481,7 +487,7 @@ describe('composeSystemPrompt', () => {
       expect(prototypePrompt).toContain(
         '图片没生成出来,不是你的操作有误 —— 这次是 Open Design 自己的问题,我们已经记下了。重试一般能恢复;反复出现的话联系我们。',
       );
-      expect(prototypePrompt).toContain('IMAGE_MODEL="vela/gpt-image-2"');
+      expect(prototypePrompt).toContain('IMAGE_MODEL="gemini-3.1-flash-image-preview"');
       expect(prototypePrompt).not.toContain(
         'For the best fal image model use `--model flux-pro-ultra`',
       );

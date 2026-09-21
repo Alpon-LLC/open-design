@@ -1,9 +1,12 @@
+import { DEFAULT_IMAGE_MODEL_ID } from '@open-design/contracts';
+
 // Daemon-side mirror of src/media/models.ts. The two files are kept in sync by hand — any model added to
 // src/media/models.ts must be added here too. Drift is enforced by
 // `node scripts/verify-media-models.mjs` (also exposed as
 // `npm run verify:media-models`); CI should call it before publish so
 // the moment one side adds a model and the other doesn't, the build
 // fails with a precise diff.
+
 
 export type MediaSurface = 'image' | 'video' | 'audio';
 export type AudioKind = 'music' | 'speech' | 'sfx';
@@ -113,7 +116,7 @@ export const IMAGE_MODELS: MediaModel[] = [
 
   { id: 'grok-imagine-image', label: 'grok-imagine-image', hint: 'xAI · 2K text-to-image', provider: 'grok', caps: ['t2i'] },
 
-  { id: 'gemini-3.1-flash-image-preview', label: 'nano-banana-2', hint: 'Nano Banana · text-to-image', provider: 'nanobanana', caps: ['t2i'], default: true },
+  { id: DEFAULT_IMAGE_MODEL_ID, label: 'nano-banana-2', hint: 'Nano Banana · text-to-image', provider: 'nanobanana', caps: ['t2i'], default: true },
 
   { id: 'openai/gpt-image-2', label: 'openai/gpt-image-2', hint: 'ImageRouter · routed GPT Image', provider: 'imagerouter', caps: ['t2i'] },
   { id: 'openai/gpt-image-1.5', label: 'openai/gpt-image-1.5', hint: 'ImageRouter · routed GPT Image', provider: 'imagerouter', caps: ['t2i'] },

@@ -367,3 +367,5 @@ export interface HyperFramesScaffoldResponse {
   compositionDir: string;
   files: ['hyperframes.json', 'meta.json', 'index.html'];
 }
+
+export const DEFAULT_IMAGE_MODEL_ID = 'gemini-3.1-flash-image-preview';

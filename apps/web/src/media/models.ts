@@ -1,3 +1,5 @@
+import { DEFAULT_IMAGE_MODEL_ID } from '@open-design/contracts';
+
 /**
  * Single source of truth for the media-generation model registry.
  *
@@ -453,7 +455,7 @@ export const IMAGE_MODELS: MediaModel[] = [
 
   // Nano Banana — Google-compatible generateContent image path.
   {
-    id: 'gemini-3.1-flash-image-preview',
+    id: DEFAULT_IMAGE_MODEL_ID,
     label: 'nano-banana-2',
     hint: 'Nano Banana · text-to-image',
     provider: 'nanobanana',
