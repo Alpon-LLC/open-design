@@ -3824,6 +3824,24 @@ test('attachAcpSession captures the durable session handle from the result', () 
   assert.equal(session.getDurableSessionId(), 'oc-handle');
 });
 
+test('attachAcpSession captures the standard ACP session id when opted in', () => {
+  const child = new FakeAcpChild();
+  const session = attachAcpSession({
+    child: child as never,
+    prompt: 'hello',
+    cwd: '/tmp/od-project',
+    model: null,
+    mcpServers: [],
+    durableSessionIdSource: 'sessionId',
+    send: () => {},
+  });
+
+  writeAcpResult(child, 1, {});
+  writeAcpResult(child, 2, { sessionId: 'hermes-session-1' });
+
+  assert.equal(session.getDurableSessionId(), 'hermes-session-1');
+});
+
 test('createJsonLineStream replays absorbed complete frames when a value-position aggregate turns invalid', () => {
   const received: Array<Record<string, unknown>> = [];
   const parser = createJsonLineStream((message) => {

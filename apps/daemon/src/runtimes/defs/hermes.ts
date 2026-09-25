@@ -47,6 +47,11 @@ export const hermesAgentDef = {
     ],
     buildArgs: () => ['acp', '--accept-hooks'],
     streamFormat: 'acp-json-rpc',
+    // Hermes persists ACP sessions and implements session/load. Reuse that
+    // native state instead of starting a new agent and re-sending the entire
+    // OpenDesign transcript on every turn; long design chats otherwise grow
+    // until Hermes cannot compress the duplicated context any further.
+    resumesSessionViaAcpLoad: true,
     mcpDiscovery: 'mature-acp',
     externalMcpInjection: 'acp-merge',
 } satisfies RuntimeAgentDef;
