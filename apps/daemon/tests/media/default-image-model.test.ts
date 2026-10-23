@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { resolveProviderConfig } from '../../src/media/config';
-import { IMAGE_MODELS } from '../../src/media/models';
+import { resolveProviderConfig } from '../../src/media/config.js';
+import { IMAGE_MODELS } from '../../src/media/models.js';
 
 const previousGoogleKey = process.env.GOOGLE_API_KEY;
 

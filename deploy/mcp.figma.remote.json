@@ -1,0 +1,8 @@
+{
+  "id": "figma-use",
+  "transport": "http",
+  "enabled": false,
+  "label": "Figma (official remote MCP)",
+  "url": "https://mcp.figma.com/mcp",
+  "authMode": "oauth"
+}

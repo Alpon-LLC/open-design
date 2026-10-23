@@ -69,7 +69,12 @@ export const CATALOGUE: ReadonlyArray<CatalogueEntry> = [
   { id: 'xcode', label: 'Xcode', icon: 'file-code', macOpenBundle: ['Xcode', 'Xcode-beta', 'Xcode Beta'], platforms: ['darwin'] },
   { id: 'finder', label: 'Finder', icon: 'folder', command: MAC_OPEN_COMMAND, commandArgs: (resolvedDir) => ['-R', resolvedDir], platforms: ['darwin'] },
   { id: 'explorer', label: 'Explorer', icon: 'folder', command: 'explorer', platforms: ['win32'] },
-  { id: 'file-manager', label: 'File Manager', icon: 'folder', command: 'xdg-open', platforms: ['linux'] },
+  // No `file-manager` (`xdg-open`) entry: on a headless/hosted daemon there is
+  // no desktop to reveal files in, so advertising it produced
+  // `EDITOR_NOT_AVAILABLE` / `unknown editor: file-manager` instead of helping.
+  // Project files are browsed and downloaded through the Design Files surface
+  // (`https://design.alpon.xyz/files/` in the Alpon deployment). Alpon fork
+  // divergence, see deploy/README.alpon.md.
   { id: 'terminal', label: 'Terminal', icon: 'sliders', macOpenBundle: 'Terminal', platforms: ['darwin'] },
   // darwin-only: Warp cold-starts ignore the cwd argument on win32/linux, so
   // the "open in Warp" UX is broken on those platforms. Revisit if/when

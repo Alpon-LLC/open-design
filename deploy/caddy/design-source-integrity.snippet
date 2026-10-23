@@ -1,0 +1,7 @@
+# Imported only inside the design.alpon.xyz handler. Raw project bytes feed
+# the editor's concurrent-write check; edge email/HTML rewriting corrupts it.
+@design_raw_source {
+    method GET HEAD
+    path_regexp design_raw_source ^/api/projects/[^/]+/raw/.+$
+}
+header @design_raw_source >Cache-Control "no-cache, no-transform"
