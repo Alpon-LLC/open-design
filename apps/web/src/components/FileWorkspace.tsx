@@ -3391,6 +3391,9 @@ export function FileWorkspace({
     [slideNavRequest, activeViewerFile?.name, slideNavDeliverableNonce],
   );
   const stableOpenFileReplacing = useStableHandler(openFileReplacing);
+  const stableOpenDesignFiles = useStableHandler(() => {
+    setPersistedActive(DESIGN_FILES_TAB);
+  });
   const renderFileViewer = (file: ProjectFile, workspaceActive: boolean) => (
     <FileViewer
       projectId={projectId}
@@ -3411,6 +3414,7 @@ export function FileWorkspace({
       }
       onFileSaved={refreshFilesWithoutResult}
       onOpenFileReplacing={stableOpenFileReplacing}
+      onOpenDesignFiles={stableOpenDesignFiles}
       commentPortalId={workspaceActive ? commentPortalId : undefined}
       onCommentModeChange={workspaceActive ? onCommentModeChange : undefined}
       shareRequest={

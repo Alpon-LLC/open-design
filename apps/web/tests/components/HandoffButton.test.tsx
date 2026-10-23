@@ -27,10 +27,14 @@ function stubEditors(editors: HostEditor[], platform: HostEditorsResponse['platf
   }));
 }
 
-function renderLocalized(locale: Locale) {
+function renderLocalized(locale: Locale, onOpenDesignFiles?: () => void) {
   render(
     <I18nProvider initial={locale}>
-      <HandoffButton projectId="project-1" projectKind="prototype" />
+      <HandoffButton
+        projectId="project-1"
+        projectKind="prototype"
+        onOpenDesignFiles={onOpenDesignFiles}
+      />
     </I18nProvider>,
   );
 }
@@ -97,5 +101,26 @@ describe('HandoffButton i18n', () => {
     expect(screen.getByTestId('handoff-menu-item-cursor').textContent).toBe('Cursor');
     expect(screen.getByTestId('handoff-menu-item-cursor').getAttribute('title'))
       .toBe('Cursor - 未在 $PATH 中检测到');
+  });
+
+  it('opens Design Files instead of requesting an unavailable host file manager', async () => {
+    const onOpenDesignFiles = vi.fn();
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      if (String(input) === '/api/editors') {
+        return new Response(JSON.stringify({ editors: [], platform: 'linux' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error(`unexpected fetch ${String(input)}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderLocalized('en', onOpenDesignFiles);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Design Files' }));
+
+    expect(onOpenDesignFiles).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
