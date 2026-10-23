@@ -122,9 +122,11 @@ interface Props {
   metricsConsent?: boolean;
   installationId?: string | null;
   embedded?: boolean;
-  // Optional fallback "always open in OS file manager" — falls back to the
-  // existing shell.openPath bridge in case the daemon catalogue is empty
-  // (highly unlikely on macOS / Win / Linux but harmless to support).
+  // Opens the in-product, project-scoped file browser when the daemon has no
+  // usable host editor or native file manager.
+  onOpenDesignFiles?: () => void;
+  // Optional renderer bridge retained for an available Finder target whose
+  // daemon launch fails after discovery.
   onRequestRevealInFinder?: () => void;
 }
 
@@ -196,21 +198,13 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-const HOST_PLATFORMS: ReadonlyArray<HostEditorsResponse['platform']> = [
-  'darwin',
-  'win32',
-  'linux',
-  'unknown',
-];
-
 // `fetchHostEditors` casts the raw `/api/editors` JSON to `HostEditorsResponse`
 // without checking it, and this button now mounts in the viewer chrome on every
 // artifact — so a host that answers off-contract must not be able to take the
 // viewer down with it. These two helpers state the invariant the render path
 // relies on: `editors` is always an array whose entries each have a non-empty
 // string `id` (React key, icon lookup, preference storage, open-in request body)
-// and `label` (rendered text) plus a boolean `available`; `platform` is always
-// one of the four values the fallback control branches on. Entries that cannot
+// and `label` (rendered text) plus a boolean `available`. Entries that cannot
 // satisfy that are dropped rather than rendered half-formed.
 function normalizeHostEditors(value: unknown): HostEditor[] {
   if (!Array.isArray(value)) return [];
@@ -230,12 +224,6 @@ function normalizeHostEditors(value: unknown): HostEditor[] {
     });
   }
   return editors;
-}
-
-function normalizeHostPlatform(value: unknown): HostEditorsResponse['platform'] {
-  return HOST_PLATFORMS.includes(value as HostEditorsResponse['platform'])
-    ? (value as HostEditorsResponse['platform'])
-    : 'unknown';
 }
 
 type T = ReturnType<typeof useT>;
@@ -341,6 +329,7 @@ export function HandoffButton({
   artifactId,
   artifactKind,
   embedded = false,
+  onOpenDesignFiles,
   onRequestRevealInFinder,
 }: Props) {
   const t = useT();
@@ -367,7 +356,6 @@ export function HandoffButton({
     });
   };
   const [editors, setEditors] = useState<HostEditor[]>([]);
-  const [platform, setPlatform] = useState<HostEditorsResponse['platform']>('unknown');
   const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState(embedded);
   const [busy, setBusy] = useState<HostEditorId | null>(null);
@@ -390,7 +378,6 @@ export function HandoffButton({
         const body: Partial<HostEditorsResponse> | null =
           typeof resp === 'object' && resp !== null ? resp : null;
         setEditors(normalizeHostEditors(body?.editors));
-        setPlatform(normalizeHostPlatform(body?.platform));
         setLoaded(true);
       })
       .catch(() => {
@@ -581,60 +568,29 @@ export function HandoffButton({
     return null;
   }
 
-  // No available editors — render a Finder/Explorer/File-Manager single-button
-  // fallback so the surface is never blank, including the true zero-editor
-  // response where the daemon reports `editors: []`.
+  // A host opener executes beside the daemon, not in the user's browser. When
+  // discovery finds none, route to OpenDesign's project-scoped browser instead
+  // of fabricating a native target that is guaranteed to fail on a headless
+  // deployment.
   if (available.length === 0) {
-    const fallbackLabel = platform === 'win32' ? 'Explorer' : platform === 'linux' ? 'File Manager' : 'Finder';
-    const fallbackId: HostEditorId =
-      platform === 'win32' ? 'explorer' : platform === 'linux' ? 'file-manager' : 'finder';
-    // Wrap the solo button so a daemon spawn failure can surface an
-    // inline error next to it — without this, ProjectView's
-    // `<HandoffButton projectId={…} />` (no reveal callback) turns a
-    // rejected `openProjectInEditor` into a silent no-op.
+    const designFilesLabel = t('workspace.designFiles');
     return (
       <div className="handoff-wrap handoff-wrap--solo" data-testid="handoff-wrap">
         <button
           type="button"
           className="handoff-trigger handoff-trigger--solo od-tooltip"
-          title={t('handoff.fallbackTitle', { target: fallbackLabel })}
-          data-tooltip={t('handoff.fallbackTitle', { target: fallbackLabel })}
+          title={designFilesLabel}
+          data-tooltip={designFilesLabel}
           data-tooltip-placement="bottom"
-          disabled={busy === fallbackId}
+          aria-label={designFilesLabel}
           onClick={() => {
-            // The fallback opens the project folder in the OS file manager.
-            // finder / explorer / file-manager are real entries in the daemon's
-            // open-in catalogue (open / explorer / xdg-open), so this performs a
-            // genuine reveal rather than a no-op; the renderer reveal bridge is a
-            // secondary fallback if the daemon spawn fails.
-            fireHandoff({
-              element: 'open_editor',
-              target_id: handoffTargetIdToTracking(fallbackId),
-              target_available: false,
-              handoff_tab: 'editor',
-            });
-            setError(null);
-            setBusy(fallbackId);
-            void openProjectInEditor(projectId, fallbackId, workspaceContext)
-              .catch((err) => {
-                setError(err instanceof Error ? err.message : String(err));
-                onRequestRevealInFinder?.();
-              })
-              .finally(() => setBusy(null));
+            fireHandoff({ element: 'trigger', handoff_tab: 'editor' });
+            onOpenDesignFiles?.();
           }}
         >
-          {busy === fallbackId ? (
-            <Icon name="spinner" size={20} />
-          ) : (
-            <EditorIcon editorId={fallbackId} size={20} />
-          )}
-          <span className="handoff-trigger-label">{fallbackLabel}</span>
+          <Icon name="folder" size={20} />
+          <span className="handoff-trigger-label">{designFilesLabel}</span>
         </button>
-        {error ? (
-          <div className="handoff-menu-error" role="alert" data-testid="handoff-fallback-error">
-            {error}
-          </div>
-        ) : null}
       </div>
     );
   }

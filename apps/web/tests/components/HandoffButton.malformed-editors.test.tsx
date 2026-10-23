@@ -10,7 +10,7 @@
 // The invariant these lock in: whatever `/api/editors` answers, the component
 // reduces it to a renderable list — array-shaped, every entry carrying a
 // non-empty `id` and `label` and a real boolean `available` — and falls back to
-// the OS file-manager control instead of crashing the viewer.
+// the in-product Design Files surface instead of crashing the viewer.
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -62,7 +62,7 @@ describe('HandoffButton /api/editors response hardening', () => {
     renderHandoff();
 
     // The zero-editor fallback control, not a thrown render.
-    expect(await screen.findByText('Finder')).toBeTruthy();
+    expect(await screen.findByText('Design Files')).toBeTruthy();
   });
 
   it('survives a response body that is not an object at all', async () => {
@@ -70,7 +70,7 @@ describe('HandoffButton /api/editors response hardening', () => {
 
     renderHandoff();
 
-    expect(await screen.findByText('Finder')).toBeTruthy();
+    expect(await screen.findByText('Design Files')).toBeTruthy();
   });
 
   it('drops malformed entries and keeps the well-formed ones', async () => {
@@ -109,21 +109,21 @@ describe('HandoffButton /api/editors response hardening', () => {
 
     renderHandoff();
 
-    // No entry counts as available, so the file-manager fallback owns the
+    // No entry counts as available, so the Design Files fallback owns the
     // surface and a truthy-but-wrong flag never becomes a launch target.
-    expect(await screen.findByText('Finder')).toBeTruthy();
+    expect(await screen.findByText('Design Files')).toBeTruthy();
     expect(screen.queryByTestId('handoff-trigger')).toBeNull();
     expect(screen.queryByText('Cursor')).toBeNull();
   });
 
-  it('falls back to the darwin-style control when `platform` is off-contract', async () => {
+  it('falls back to Design Files when `platform` is off-contract', async () => {
     mockRawEditorsResponse({ platform: 'MacOS', editors: [] });
 
     renderHandoff();
 
-    // An unrecognized platform degrades to `unknown`, which shares the default
-    // reveal target rather than leaking the raw string into the open-in call.
-    expect(await screen.findByText('Finder')).toBeTruthy();
-    await waitFor(() => expect(screen.getByText('Finder')).toBeTruthy());
+    // An unrecognized platform cannot select a host opener, so the in-product
+    // file browser remains the safe target.
+    expect(await screen.findByText('Design Files')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Design Files')).toBeTruthy());
   });
 });

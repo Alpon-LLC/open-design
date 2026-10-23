@@ -1728,6 +1728,7 @@ interface Props {
   // atomic tab-state update. The React module pointer uses this to jump to the
   // HTML entry that renders a module and drop the dead-end module tab.
   onOpenFileReplacing?: (openName: string, closeName: string) => void;
+  onOpenDesignFiles?: () => void;
   commentPortalId?: string;
   onCommentModeChange?: (active: boolean) => void;
   // Bumped nonce asking this viewer to open its Share/Export menu (chat-side
@@ -1820,6 +1821,7 @@ export const FileViewer = memo(function FileViewer({
   onFileSaved,
   onBrandExtractionStopRequest,
   onOpenFileReplacing,
+  onOpenDesignFiles,
   commentPortalId,
   onCommentModeChange,
   shareRequest,
@@ -1909,6 +1911,7 @@ export const FileViewer = memo(function FileViewer({
         onFileSaved={onFileSaved}
         onBrandExtractionStopRequest={onBrandExtractionStopRequest}
         onOpenFileReplacing={onOpenFileReplacing}
+        onOpenDesignFiles={onOpenDesignFiles}
         commentPortalId={commentPortalId}
         onCommentModeChange={onCommentModeChange}
         shareRequest={shareRequest}
@@ -1936,6 +1939,7 @@ export const FileViewer = memo(function FileViewer({
         projectKind={projectKind}
         file={file}
         onOpenFileReplacing={onOpenFileReplacing}
+        onOpenDesignFiles={onOpenDesignFiles}
         projectName={projectName}
         projectDir={projectDir}
         agents={agents}
@@ -6388,6 +6392,7 @@ function ReactComponentViewer({
   projectKind,
   file,
   onOpenFileReplacing,
+  onOpenDesignFiles,
   projectName,
   projectDir,
   agents,
@@ -6402,6 +6407,7 @@ function ReactComponentViewer({
   projectKind: TrackingProjectKind;
   file: ProjectFile;
   onOpenFileReplacing?: (openName: string, closeName: string) => void;
+  onOpenDesignFiles?: () => void;
   projectName?: string;
   projectDir?: string | null;
   agents?: AgentInfo[];
@@ -7146,6 +7152,7 @@ function ReactComponentViewer({
                   artifactKind={handoffArtifactKind}
                   metricsConsent={metricsConsent}
                   installationId={installationId}
+                  onOpenDesignFiles={onOpenDesignFiles}
                 />
               )}
             </>
@@ -7320,6 +7327,7 @@ function HtmlViewer({
   onFileSaved,
   onBrandExtractionStopRequest,
   onOpenFileReplacing,
+  onOpenDesignFiles,
   commentPortalId,
   onCommentModeChange,
   shareRequest,
@@ -7355,6 +7363,7 @@ function HtmlViewer({
   onFileSaved?: () => Promise<void> | void;
   onBrandExtractionStopRequest?: () => void;
   onOpenFileReplacing?: (openName: string, closeName: string) => void;
+  onOpenDesignFiles?: () => void;
   commentPortalId?: string;
   onCommentModeChange?: (active: boolean) => void;
   shareRequest?: { nonce: number; anchorId?: string } | null;
@@ -17343,6 +17352,7 @@ function HtmlViewer({
                   artifactKind={handoffArtifactKind}
                   metricsConsent={metricsConsent}
                   installationId={installationId}
+                  onOpenDesignFiles={onOpenDesignFiles}
                 />
               )}
             </div>
