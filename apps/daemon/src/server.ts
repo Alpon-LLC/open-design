@@ -3216,16 +3216,14 @@ export async function startServer({
   // wall — well past 4mb for image/markup-heavy sites. Give it a dedicated limit
   // (registered before the global parser so it claims the body first).
   app.use('/api/brands/:id/extract-from-html', express.json({ limit: '32mb' }));
-// Artifact save/lint carry the full rendered HTML of a design artifact. For an
+  // Artifact save/lint carry the full rendered HTML of a design artifact. For an
   // image/markup-heavy design that body runs well past the conservative 4mb
   // global cap, so a large edited artifact 413s on save (and on the pre-save
   // lint, which POSTs the same HTML). Give both a dedicated generous limit,
   // registered before the global parser so it claims the body first.
   app.use('/api/artifacts/save', express.json({ limit: '128mb' }));
   app.use('/api/artifacts/lint', express.json({ limit: '128mb' }));
-  // Chunked project upload: large attachment files arrive as many small
-  // octet-stream chunk PUTs so every request stays far below the edge/CDN
-// A chat-scroll forensics capture carries the chat log's full `outerHTML`,
+  // A chat-scroll forensics capture carries the chat log's full `outerHTML`,
   // and the envelope carries two of them (`live` + `retained`), each truncated
   // renderer-side at 8MB. Registered here for the same reason as the two above
   // — the route itself is declared far below, and by then the global parser has

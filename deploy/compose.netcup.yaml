@@ -1,0 +1,59 @@
+name: alpon-open-design
+
+services:
+  app:
+    # Immutable local image: upgrades require an explicit operator change.
+    image: "sha256:ab49649948c013146768c16256930035c740057ea8d7a579ebb94bdda418f0cb"
+    pull_policy: never
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    init: true
+    restart: unless-stopped
+    user: "10000:10000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 512
+    cpus: 2.0
+    mem_limit: 1280m
+    stop_grace_period: 90s
+    environment:
+      OD_DISABLE_API_AUTH: "1"
+      OD_BIND_HOST: "0.0.0.0"
+      OD_ALLOWED_ORIGINS: "http://127.0.0.1:4119,https://design.alpon.xyz"
+      OD_PUBLIC_BASE_URL: "https://design.alpon.xyz"
+      OD_UPDATE_ENABLED: "0"
+      OD_UPDATE_AUTO_CHECK: "0"
+      OD_UPDATE_AUTO_DOWNLOAD: "0"
+      OD_UPDATE_AUTO_OPEN: "0"
+    ports:
+      - "127.0.0.1:4119:7456"
+    volumes:
+      - /srv/alpon/data/open-design/data:/opt/opendesign/data
+      - /srv/alpon/data/open-design/open-design-home:/opt/opendesign/open-design-home
+      - /srv/alpon/data/open-design/.looper-attachments:/opt/opendesign/.looper-attachments
+      - /srv/alpon/data/hermes-core:/opt/data:ro
+      - /srv/alpon/data/open-design/runtime/local-daemon-request.js:/opt/opendesign/runtime/daemon/dist/http/local-daemon-request.js:ro
+
+      - /srv/alpon/data/open-design/runtime/host-tools.js:/opt/opendesign/runtime/daemon/dist/routes/host-tools.js:ro
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m,uid=10000,gid=10000,mode=1700
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:7456/').then(response => {
+            if (response.status !== 200) process.exit(1)
+          }).catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 120s
+    networks: [private]
+
+networks:
+  private:
+    driver_opts:
+      com.docker.network.bridge.enable_ip_masquerade: "false"

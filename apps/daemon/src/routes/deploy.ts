@@ -8,8 +8,6 @@ export interface RegisterDeployRoutesDeps extends RouteDeps<'db' | 'http' | 'pat
   authorizeProjectRequest: AuthorizeProjectRequest;
 }
 
-const activeVercelDeploys = new Map<string, Promise<void>>();
-
 export function registerDeployRoutes(app: Express, ctx: RegisterDeployRoutesDeps) {
   const { db } = ctx;
   const { sendApiError } = ctx.http;
