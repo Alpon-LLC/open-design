@@ -74,6 +74,35 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST -H "Content-Type: application/j
   --data-binary @/tmp/b.json http://127.0.0.1:4119/api/artifacts/save   # 401 (auth), NOT 413
 ```
 
+## Model provider (OpenCode default)
+
+The OpenCode runtime reads `$HOME/.config/opencode/opencode.json` inside the
+container (`/opt/opendesign/open-design-home/.config/opencode/opencode.json`,
+on the data volume — not in the image). Its default model is
+`alpon-9router/cx/gpt-6-astra` at **low** reasoning, served by **OmniRoute**
+(`http://omniroute:20128/v1`), with the client key in
+`/srv/alpon/secrets/open-design-omniroute.key`.
+
+OpenCode V2 drops a `#variant` from the root `model` field, so the low default
+lives on the model entry (`providers.<id>.models["cx/gpt-6-astra"].settings.
+reasoningEffort = "low"`); explicit low/medium/high selections still override
+it.
+
+- The provider id stays `alpon-9router` so saved per-project model selections
+  keep resolving; `deploy/opencode-v2-wrapper.cjs` rewrites the UI's
+  `openai/gpt-5.6-*` ids to the upstream `cx/gpt-5.6-*` ids.
+- OmniRoute is the home of the Codex OAuth seat after the 9router → OmniRoute
+  migration. The legacy 9router instance no longer holds codex/openai
+  credentials, so pointing this provider back at it fails with
+  `No active credentials for provider: codex`.
+- Verify with the wrapper, which is what the daemon spawns:
+
+  ```bash
+  docker exec alpon-open-design-app-1 sh -lc \
+    'cd /tmp && echo "Reply with exactly: ok" | \
+     /opt/opendesign/data/bin/opencode run --format json'
+  ```
+
 ## Notes
 
 - **Toolchain change from the live setup:** the prior image was built on an
